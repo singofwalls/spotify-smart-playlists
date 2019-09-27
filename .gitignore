@@ -3,3 +3,4 @@
 creds.json
 .cache*
 .vscode
+.idea*
