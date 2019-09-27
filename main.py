@@ -3,7 +3,6 @@ from spotipy import util
 
 import json
 
-
 CREDS_FILE = "creds.json"
 
 
@@ -13,7 +12,6 @@ def main():
 
     with open("songs.json", "w") as f:
         json.dump(get_all_songs(spotify), f)
-
 
 
 def get_all_songs(spotify: spotipy.Spotify):
@@ -28,7 +26,6 @@ def get_all_songs(spotify: spotipy.Spotify):
     return results
 
 
-
 def get_credentials():
     """Load the credentials from the json."""
     with open(CREDS_FILE) as f:
@@ -40,13 +37,9 @@ def get_credentials():
 def get_spotify(s_creds):
     """Get the spotify object from which to make requests."""
     # Authorize Spotify
-    token = util.prompt_for_user_token(
-        s_creds["username"],
-        s_creds["scopes"],
-        s_creds["client_id"],
-        s_creds["client_secret"],
-        s_creds["redirect_uri"],
-    )
+    token = util.prompt_for_user_token(s_creds["username"], s_creds["scopes"],
+        s_creds["client_id"], s_creds["client_secret"],
+        s_creds["redirect_uri"], )
 
     return spotipy.Spotify(auth=token)
 
