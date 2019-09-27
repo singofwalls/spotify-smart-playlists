@@ -1,0 +1,5 @@
+.mypy*
+.venv
+creds.json
+.cache*
+.vscode
