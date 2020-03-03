@@ -1,3 +1,5 @@
+"""Create dynamic Spotify playlists using Playlist objects."""
+
 import spotipy
 from spotipy import util
 
@@ -11,45 +13,56 @@ PLAYLIST_FIELDS = ("id", "name")
 
 
 def main():
+    """Create default playlists."""
     creds = get_credentials()
     spotify = get_spotify(creds)
-    
-    fav_tracks = get_all_songs(spotify)
 
-    bands = Playlist("Bands", )
-    fav_bands = Playlist()
+    fav_tracks = get_all_songs(spotify)
+    playlists = get_playlists(spotify)
+
+    bands = Playlist("Bands")
+    bands.find_tracks(spotify)
+    # fav_bands = Playlist()
 
 
 class Playlist:
-    def __init__(self, name, id=None, spotify: spotipy.Spotify):
+    """Maintain a list of tracks and allow for easy updating of the list."""
+
+    def __init__(self, name: str, id: str = None, spotify: spotipy.Spotify = None):
         super(Playlist, self).__init__()
         self.name = name
         self.publish_name = None
-        self.tracks = set()
-        if id is not None:
-            self._populate(spotify, id)
+        self.tracks: set = set()
+        self.id = id
+        if self.id is not None:
+            self._populate(spotify, self.id)
 
     def __add__(self, other):
+        """Add tracks from both playlists."""
         new = self.copy(" plus " + other.name)
         new.tracks += other.tracks
         return new
 
     def __sub__(self, other):
+        """Remove tracks in right playlist from left playlist."""
         new = self.copy(" minus " + other.name)
         new.tracks -= other.tracks
         return new
 
     def __and__(self, other):
+        """Intersect tracks of both playlists."""
         new = self.copy(" and " + other.name)
         new.tracks &= other.tracks
         return new
 
     def __or__(self, other):
+        """Combine tracks of both playlists."""
         new = self.copy(" or " + other.name)
         new.tracks |= other.tracks
         return new
 
     def copy(self, name_addition=None):
+        """Copy tracks into new playlist."""
         name = self.name if name_addition is None else f"({self.name}){name_addition}"
         new = Playlist(name)
         new.publish_name = self.publish_name
@@ -60,8 +73,13 @@ class Playlist:
         """Populate the playlist with tracks from the playlist id."""
         self.tracks = set(get_playlist_tracks(spotify, id))
 
+    def find_tracks(self, spotify: spotipy.Spotify):
+        """Update tracks with tracks from matching playlist name in Spotify."""
+        playlists = get_playlists(spotify)
+        pass
+
     def publish(self, spotify: spotipy.Spotify, playlists):
-        """Publish the playlist to spotify"""
+        """Publish the playlist to spotify."""
         name = self.name if self.publish_name is None else self.publish_name
         name_exists = False
         # spotify.user_playlist_create
@@ -114,7 +132,7 @@ def get_spotify(s_creds):
 
 
 def select_fields(tracks, root="track", fields=TRACK_FIELDS):
-    """Converts api results to dict."""
+    """Convert api results to dict."""
     return [{k: t[root][k] for k in fields} for t in tracks]
 
 
