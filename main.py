@@ -4,10 +4,13 @@ import spotipy
 from spotipy import util
 
 import json
+import operator
+from functools import reduce
+from collections import namedtuple
+
 
 CREDS_FILE = "creds.json"
 
-SMART_PLAYLISTS = {"FAVORITE INSTRUMENTALS": ("07fdYUs00cdxyoXt7x23i1", "")}
 TRACK_FIELDS = ("id", "name", "is_local")
 PLAYLIST_FIELDS = ("id", "name")
 
@@ -17,96 +20,164 @@ def main():
     creds = get_credentials()
     spotify = get_spotify(creds)
 
-    fav_tracks = get_all_songs(spotify)
-    playlists = get_playlists(spotify)
+    saved_songs = get_saved_songs(spotify)
 
-    bands = Playlist("Bands")
-    bands.find_tracks(spotify)
-    # fav_bands = Playlist()
+    p_saved_songs = Playlist(spotify, "Liked Songs")
+    p_saved_songs += saved_songs
+
+    p_instrumental = Playlist(spotify, "All Instrumental")
+
+    p_saved_bands = (
+        Playlist(spotify, "Saved Band Singles", populate=False)
+        + p_saved_songs
+        - p_instrumental
+    )
+    p_saved_bands.name = "Saved Band Singles"
+    p_saved_bands.publish()
+
+
+Track = namedtuple("Track", TRACK_FIELDS)
 
 
 class Playlist:
     """Maintain a list of tracks and allow for easy updating of the list."""
 
-    def __init__(self, name: str, id: str = None, spotify: spotipy.Spotify = None):
-        super(Playlist, self).__init__()
+    def __init__(
+        self, spotify: spotipy.Spotify, name: str, id: str = None, populate: bool = True
+    ):
+        self.spotify = spotify
         self.name = name
         self.publish_name = None
         self.tracks: set = set()
         self.id = id
-        if self.id is not None:
-            self._populate(spotify, self.id)
+        if self.id is None:
+            self._find_id()
+        if self.id is not None and populate:
+            self._populate()
 
     def __add__(self, other):
-        """Add tracks from both playlists."""
-        new = self.copy(" plus " + other.name)
-        new.tracks += other.tracks
-        return new
+        """Add tracks from both playlists or tracklist."""
+        # Set addition is really union "or"
+        return self._membership_op(other, "plus", operator.or_)
 
     def __sub__(self, other):
         """Remove tracks in right playlist from left playlist."""
-        new = self.copy(" minus " + other.name)
-        new.tracks -= other.tracks
-        return new
+        return self._membership_op(other, "minus", operator.sub)
 
     def __and__(self, other):
         """Intersect tracks of both playlists."""
-        new = self.copy(" and " + other.name)
-        new.tracks &= other.tracks
-        return new
+        return self._membership_op(other, "and", operator.and_)
 
     def __or__(self, other):
         """Combine tracks of both playlists."""
-        new = self.copy(" or " + other.name)
-        new.tracks |= other.tracks
+        return self._membership_op(other, "or", operator.or_)
+
+    def _membership_op(self, other, name, operation):
+        """Perform a membership operation on the Playlist."""
+        if type(other) == Playlist:
+            new = self.copy(f" {name} {other.name}")
+            new.tracks = operation(new.tracks, other.tracks)
+        elif type(other) in [list, set]:
+            new = self.copy()
+            new.tracks = operation(new.tracks, set(other))
         return new
+
+    def __bool__(self):
+        """Determine truthiness of Playlist."""
+        return bool(self.tracks)
+
+    def __len__(self):
+        """Get the length of the playlist."""
+        return len(self.tracks)
 
     def copy(self, name_addition=None):
         """Copy tracks into new playlist."""
         name = self.name if name_addition is None else f"({self.name}){name_addition}"
-        new = Playlist(name)
-        new.publish_name = self.publish_name
+        new = Playlist(self.spotify, name, self.id, populate=False)
         new.tracks = self.tracks
         return new
 
-    def _populate(self, spotify: spotipy.Spotify, id):
+    def _populate(self):
         """Populate the playlist with tracks from the playlist id."""
-        self.tracks = set(get_playlist_tracks(spotify, id))
+        self.tracks = set(get_playlist_tracks(self.spotify, self.id))
 
-    def find_tracks(self, spotify: spotipy.Spotify):
-        """Update tracks with tracks from matching playlist name in Spotify."""
-        playlists = get_playlists(spotify)
-        pass
+    def _find_id(self):
+        """Update id with id from matching playlist name in Spotify."""
+        playlists = get_playlists(self.spotify)
+        name_map = {p["name"]: p["id"] for p in playlists}
+        if self.name in name_map:
+            self.id = name_map[self.name]
 
-    def publish(self, spotify: spotipy.Spotify, playlists):
+    def publish(
+        self,
+        name: str = None,
+        always_new: bool = False,
+        public: bool = False,
+        desc: str = "",
+    ):
         """Publish the playlist to spotify."""
-        name = self.name if self.publish_name is None else self.publish_name
-        name_exists = False
-        # spotify.user_playlist_create
+
+        def get_track_ids(tracks):
+            """Get the track ids from Track objects."""
+            non_local = filter(lambda t: not t[t._fields.index("is_local")], tracks)
+            return set(map(lambda t: t[t._fields.index("id")], non_local))
+
+        name = self.name if name is None else name
+
+        user = self.spotify.me()["id"]
+
+        if always_new or self.id is None:
+            playlist = self.spotify.user_playlist_create(user, name, public, desc)
+            self.id = playlist["id"]
+
+        all_tracks = get_track_ids(self.tracks)
+        current_tracks = get_track_ids(get_playlist_tracks(self.spotify, self.id))
+        new_tracks = list(all_tracks - current_tracks)
+        old_tracks = list(current_tracks - all_tracks)
+
+        for i in range(0, len(old_tracks), 50):
+            self.spotify.user_playlist_remove_all_occurrences_of_tracks(
+                user, self.id, old_tracks[i : i + 50]
+            )
+        for i in range(0, len(new_tracks), 50):
+            self.spotify.user_playlist_add_tracks(user, self.id, new_tracks[i : i + 50])
 
 
 def get_playlist_tracks(spotify: spotipy.Spotify, playlist_id):
     """Load all songs from the given playlist."""
     # 50 is max limit for api
-    result = spotify.user_playlist_tracks(spotify, playlist_id)
+    result = spotify.user_playlist_tracks(None, playlist_id)
     results = result["items"]
     while result["next"]:
         result = spotify.next(result)
         results.extend(result["items"])
 
-    return select_fields(results)
+    return dicts_to_tracks(select_fields(results, "track"))
 
 
-def get_all_songs(spotify: spotipy.Spotify):
+def get_saved_songs(spotify: spotipy.Spotify):
     """Load all songs from the users saved songs."""
     # 50 is max limit for api
-    result = spotify.current_user_saved_tracks(limit=50)
-    results = result["items"]
-    while result["next"]:
-        result = spotify.next(result)
-        results.extend(result["items"])
+    songs = get_all(spotify, spotify.current_user_saved_tracks(limit=50))
 
-    return select_fields(results)
+    return dicts_to_tracks(select_fields(songs, "track"))
+
+
+def get_playlists(spotify: spotipy.Spotify):
+    """Get a list of user playlist names and ids."""
+    playlists = get_all(spotify, spotify.current_user_playlists())
+
+    return select_fields(playlists, None, PLAYLIST_FIELDS)
+
+
+def get_all(spotify: spotipy.Spotify, results: dict):
+    """Grab more results until none remain."""
+    items = results["items"]
+    while results["next"]:
+        results = spotify.next(results)
+        items.extend(results["items"])
+
+    return items
 
 
 def get_credentials():
@@ -131,24 +202,16 @@ def get_spotify(s_creds):
     return spotipy.Spotify(auth=token)
 
 
-def select_fields(tracks, root="track", fields=TRACK_FIELDS):
-    """Convert api results to dict."""
-    return [{k: t[root][k] for k in fields} for t in tracks]
+def select_fields(items, root=None, fields=TRACK_FIELDS):
+    """Convert api results to dicts."""
+    return [
+        {k: t[root][k] if root is not None else t[k] for k in fields} for t in items
+    ]
 
 
-def get_playlists(spotify: spotipy.Spotify):
-    """Get a list of user playlist names and ids."""
-    results = spotify.user_playlists("spotify")
-    playlists = []
-    while results:
-        for i, playlist in enumerate(results["items"]):
-            playlists.append((playlist["name"], playlist["id"]))
-        if results["next"]:
-            results = spotify.next(results)
-        else:
-            results = None
-
-    return select_fields(playlists, "", PLAYLIST_FIELDS)
+def dicts_to_tracks(dicts):
+    """Convert api result dicts to tracks."""
+    return [Track(*(map(d.get, TRACK_FIELDS))) for d in dicts]
 
 
 if __name__ == "__main__":
