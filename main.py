@@ -21,19 +21,17 @@ def main():
     spotify = get_spotify(creds)
 
     saved_songs = get_saved_songs(spotify)
-    p_saved_songs = Playlist(spotify, "Liked Songs", populate=False)
+    p_saved_songs = Playlist(spotify, "Liked Songs")
     p_saved_songs += saved_songs
 
-    p_instrumental = Playlist(spotify, "All Instrumental")
+    p_instrumental = Playlist(spotify, "All Instrumental", populate=True)
 
-    p_saved_bands = Playlist(spotify, "Liked Songs - Bands", populate=False)
+    p_saved_bands = Playlist(spotify, "Liked Songs - Bands")
     p_saved_bands += p_saved_songs - p_instrumental
     p_saved_bands.name = "Liked Songs - Bands"
     p_saved_bands.publish()
 
-    p_saved_instrumentals = Playlist(
-        spotify, "Liked Songs - Instrumentals", populate=False
-    )
+    p_saved_instrumentals = Playlist(spotify, "Liked Songs - Instrumentals")
     p_saved_instrumentals += p_instrumental & saved_songs
     p_saved_instrumentals.name = "Liked Songs - Instrumentals"
     p_saved_instrumentals.publish()
@@ -46,7 +44,11 @@ class Playlist:
     """Maintain a list of tracks and allow for easy updating of the list."""
 
     def __init__(
-        self, spotify: spotipy.Spotify, name: str, id: str = None, populate: bool = True
+        self,
+        spotify: spotipy.Spotify,
+        name: str,
+        id: str = None,
+        populate: bool = False,
     ):
         self.spotify = spotify
         self.name = name
