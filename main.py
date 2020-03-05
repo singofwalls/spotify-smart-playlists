@@ -21,19 +21,22 @@ def main():
     spotify = get_spotify(creds)
 
     saved_songs = get_saved_songs(spotify)
-
-    p_saved_songs = Playlist(spotify, "Liked Songs")
+    p_saved_songs = Playlist(spotify, "Liked Songs", populate=False)
     p_saved_songs += saved_songs
 
     p_instrumental = Playlist(spotify, "All Instrumental")
 
-    p_saved_bands = (
-        Playlist(spotify, "Saved Band Singles", populate=False)
-        + p_saved_songs
-        - p_instrumental
-    )
-    p_saved_bands.name = "Saved Band Singles"
+    p_saved_bands = Playlist(spotify, "Liked Songs - Bands", populate=False)
+    p_saved_bands += p_saved_songs - p_instrumental
+    p_saved_bands.name = "Liked Songs - Bands"
     p_saved_bands.publish()
+
+    p_saved_instrumentals = Playlist(
+        spotify, "Liked Songs - Instrumentals", populate=False
+    )
+    p_saved_instrumentals += p_instrumental & saved_songs
+    p_saved_instrumentals.name = "Liked Songs - Instrumentals"
+    p_saved_instrumentals.publish()
 
 
 Track = namedtuple("Track", TRACK_FIELDS)
