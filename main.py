@@ -26,15 +26,23 @@ def main():
 
     p_instrumental = Playlist(spotify, "All Instrumental", populate=True)
 
-    p_saved_bands = Playlist(spotify, "Liked Songs - Bands")
+    p_saved_bands = Playlist(spotify, "Liked Songs - Bands", populate=True)
+    p_saved_bands -= [track for track in p_saved_bands if not track.is_local]
     p_saved_bands += p_saved_songs - p_instrumental
     p_saved_bands.name = "Liked Songs - Bands"
     p_saved_bands.publish()
 
-    p_saved_instrumentals = Playlist(spotify, "Liked Songs - Instrumentals")
+    p_saved_instrumentals = Playlist(spotify, "Liked Songs - Instrumentals", populate=True)
+    p_saved_instrumentals -= [track for track in p_saved_instrumentals if not track.is_local]
     p_saved_instrumentals += p_instrumental & saved_songs
     p_saved_instrumentals.name = "Liked Songs - Instrumentals"
     p_saved_instrumentals.publish()
+    
+    p_save_songs_all = Playlist(spotify, "Liked Songs - All", populate=True)
+    p_save_songs_all -= [track for track in p_save_songs_all if not track.is_local]
+    p_save_songs_all += p_saved_instrumentals + p_saved_bands
+    p_save_songs_all.name = "Liked Songs - All"
+    p_save_songs_all.publish()
 
 
 Track = namedtuple("Track", TRACK_FIELDS)
@@ -94,6 +102,14 @@ class Playlist:
     def __len__(self):
         """Get the length of the playlist."""
         return len(self.tracks)
+
+    def __iter__(self):
+        """Iterate the playlist tracks."""
+        return iter(self.tracks)
+
+    def __next__(self):
+        """Get next track in iterable."""
+        yield from self
 
     def copy(self, name_addition=None):
         """Copy tracks into new playlist."""
