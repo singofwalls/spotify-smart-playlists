@@ -4,3 +4,4 @@ creds.json
 .cache*
 .vscode
 .idea*
+__pycache__
