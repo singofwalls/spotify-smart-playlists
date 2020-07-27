@@ -17,16 +17,12 @@ cum_wait = OrderedDict((player, 0) for player in playlists)
 print(playlists)
 
 playlist_roadtrip = pl.Playlist(spotify, "2020 Family Summer Vacation")
-playlist_roadtrip.publish(public=True)  # Remove all tracks
 songs = []
 
 while playlists:
     playlist_chosen = random.choices(playlists, cum_weights=tuple(weight**SCALE for weight in cum_wait.values()))[0]
     song = random.choice(playlist_chosen)
     playlist_chosen -= song
-    # TODO[reece]: Remove this check once reordering is supported. Dump all playlists into main manually first
-    if song.is_local:
-        continue
     songs.append(song)
 
     behind_before = cum_wait[playlist_chosen] - min(cum_wait.values())
