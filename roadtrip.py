@@ -6,7 +6,7 @@ import random
 
 
 FAMILY_PLAYLISTS = ("5cTkATCHoowXXcAnBa0FyZ", "4mE8nSohxr9m6m9yCN0HFQ", "3RuaHkL1UqCGMp26SmWqrf", "0O9GQn8ElOFTHcMCKf9nZn", "5JCtgNVLjrGKhyYNWptrrH")
-SCALE = 3
+SCALE = 5
 
 creds = pl.get_credentials()
 spotify = pl.get_spotify(creds)
@@ -19,6 +19,9 @@ print(playlists)
 playlist_roadtrip = pl.Playlist(spotify, "2020 Family Summer Vacation")
 songs = []
 
+format_p = lambda val: "{:<06.2f}".format(val)
+format_ = lambda val: "{:<6.2f}".format(val)
+
 while playlists:
     playlist_chosen = random.choices(playlists, cum_weights=tuple(weight**SCALE for weight in cum_wait.values()))[0]
     song = random.choice(playlist_chosen)
@@ -26,6 +29,7 @@ while playlists:
     songs.append(song)
 
     behind_before = cum_wait[playlist_chosen] - min(cum_wait.values())
+    cum_before = ", ".join(format_p(val) for val in cum_wait.values())
 
     if not playlist_chosen:
         # Out of songs!
@@ -41,9 +45,7 @@ while playlists:
         cum_wait[playlist] -= min_run
 
     behind_after = (cum_wait[playlist_chosen] - min(cum_wait.values())) if playlist_chosen in playlists else -1
-    format_p = lambda val: "{:<06.2f}".format(val)
-    format_ = lambda val: "{:<6.2f}".format(val)
-    print("{:<40} {:<3} {:<9} {:<9} {:<9} {:<50}".format(", ".join(format_p(val) for val in cum_wait.values()), FAMILY_PLAYLISTS.index(playlist_chosen.name), format_(song.duration_ms/1000/60), format_(behind_before), format_(behind_after), song.name))
+    print("{:<40} {:<3} {:<9} {:<9} {:<9} {:<50}".format(cum_before, FAMILY_PLAYLISTS.index(playlist_chosen.name), format_(song.duration_ms/1000/60), format_(behind_before), format_(behind_after), song.name))
 
 playlist_roadtrip += songs
 print(playlist_roadtrip)
