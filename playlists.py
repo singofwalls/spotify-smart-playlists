@@ -1,5 +1,7 @@
 """Create dynamic Spotify playlists using Playlist objects."""
-from typing import Iterable, List, Mapping, Dict, Optional
+import warnings
+from collections import namedtuple
+from typing import Iterable, List, Mapping, Dict, Optional, Sequence, OrderedDict
 
 import spotipy
 from spotipy import util
@@ -7,8 +9,7 @@ from spotipy import util
 import json
 import operator
 import reprlib
-from itertools import chain
-
+from itertools import chain, zip_longest
 
 # TODO: TQDM
 # TODO: Remove duplicates
@@ -17,8 +18,17 @@ from itertools import chain
 
 CREDS_FILE = "creds.json"
 
-TRACK_FIELDS = ("id", "name", "is_local", "duration_ms")
-PLAYLIST_FIELDS = ("id", "name")
+TRACK_ROOT = ("track",)
+TRACK_FIELDS = {
+    "id": ("id",),
+    "name": ("name",),
+    "is_local": ("is_local",),
+    "duration_ms": ("duration_ms",),
+    "album": ("album", "name"),
+    "artist": ("artists", 0, "name"),
+}
+PLAYLIST_FIELDS = {"id": ("id",), "name": ("name",)}
+
 
 API_LIMIT = 50
 
@@ -65,15 +75,29 @@ class Track:
         self.name = None
         self.is_local = None
         self.duration_ms = None
-        self.__dict__ = {key: None for key in TRACK_FIELDS}
-        self.__dict__.update(zip(PLAYLIST_FIELDS, args))
+        self.album = None
+        self.artist = None
+
+        self.__dict__ = {key: None for key in TRACK_FIELDS.keys()}
+        self.__dict__.update(
+            {key: value for key, value in zip(TRACK_FIELDS.keys(), args)}
+        )
         self.__dict__.update(kwargs)
 
+        self.__slots__ = tuple(TRACK_FIELDS.keys())
+
+    def __hash__(self):
+        if not self.is_local:
+            return hash(self.id)
+        return hash(tuple(self.__dict__.items()))
+
     def __repr__(self):
-        return f"{self.__class__.__name__}({', '.join(f'{key}={repr(value)}' for key, value in self.__dict__.items())})"
+        return f"{self.__class__.__name__}({', '.join(f'{key}={repr(value)}' for key, value in self.__dict__.items() if not key.startswith('_'))})"
 
     def __eq__(self, other):
-        return self.id == other.id
+        if not self.is_local:
+            return self.id == other.id
+        return self.__dict__ == other.__dict__
 
 
 class Playlist:
@@ -85,11 +109,13 @@ class Playlist:
         name: str,
         id_: str = None,
         populate: bool = False,
+        allow_duplicates: bool = False,
     ):
         self.spotify = spotify
         self.name = name
         self.tracks: list = []
         self.id = id_
+        self.allow_duplicates = allow_duplicates
         if self.id is None:
             self._find_id()
         if self.id is not None and populate:
@@ -150,6 +176,8 @@ class Playlist:
             except TypeError:
                 return NotImplemented
             new.tracks = operation(new.tracks, tracks)
+        if not self.allow_duplicates:
+            new.tracks = list(OrderedDict.fromkeys(new.tracks))
         return new
 
     def __bool__(self):
@@ -193,21 +221,18 @@ class Playlist:
     ):
         """Publish the playlist to spotify."""
 
-        def get_track_ids(tracks: Iterable[Track]) -> List[str]:
-            """Get the track ids from Track objects."""
-            return list(t.id for t in tracks if not t.is_local)
-
         def get_track_name(
             track_id: str, search_list: Iterable[Track]
         ) -> Optional[str]:
             """Find a track's name from id in a list of tracks."""
-            for track in search_list:
-                if track.id == track_id:
-                    return track.name
+            for t in search_list:
+                if t.id == track_id:
+                    return t.name
             return None
 
-        name = self.name if name is None else name
+        TrackPos = namedtuple("TrackPos", "pos id")
 
+        name = self.name if name is None else name
         user = self.spotify.me()["id"]
 
         if always_new or self.id is None:
@@ -215,30 +240,82 @@ class Playlist:
             self.id = playlist["id"]
 
         tracks_online = get_playlist_tracks(self.spotify, self.id)
-        tracks_all = list(self.tracks) + tracks_online
 
-        track_ids_current = get_track_ids(tracks_online)
-        track_ids_all = get_track_ids(self.tracks)
+        # Move, remove, and add tracks to correct positions
+        new_tracks = []
+        online_index = 0
+        added = 0
+        for current_index in range(len(self.tracks)):
+            if (
+                online_index < len(tracks_online)
+                and self.tracks[current_index] == tracks_online[online_index]
+            ):
+                # Track already in position
+                online_index += 1
+                continue
 
-        # TODO[reece]: Reorder tracks which are out of order
+            # Track missing or in wrong position
+            track = self.tracks[current_index]
+            if track.is_local:
+                # Only move local tracks. Otherwise, batch add at end
+                if track in tracks_online[online_index:]:
+                    # Move track to correct position
+                    shifted_track_index = tracks_online.index(track, online_index)
+                    print(
+                        f"Moving track in {self.name}: {track.name} from {shifted_track_index} to {online_index}"
+                    )
+                    self.spotify.user_playlist_reorder_tracks(
+                        user, self.id, shifted_track_index, online_index
+                    )
+                    tracks_online.insert(
+                        online_index, tracks_online.pop(shifted_track_index)
+                    )
+                    online_index += 1
+                else:
+                    warnings.warn(
+                        f"No local file for {track.name} available in online playlist {self.name} to move to spot {online_index+1}"
+                    )
+            else:
+                # Track missing from playlist, record position to insert into later
+                new_tracks.append(TrackPos(online_index + added, track.id))
+                added += 1
 
-        track_ids_new = [t for t in track_ids_all if t not in track_ids_current]
-        tracks_ids_old = [t for t in track_ids_current if t not in track_ids_all]
-
-        track_names_old = [get_track_name(id_, tracks_all) for id_ in tracks_ids_old]
-        print(f"Removing tracks from {name}: {track_names_old}")
-
-        for i in range(0, len(tracks_ids_old), API_LIMIT):
-            self.spotify.user_playlist_remove_all_occurrences_of_tracks(
-                user, self.id, tracks_ids_old[i : i + API_LIMIT]
+        # Remove extra tracks at end which are in wrong place
+        print(
+            f"Removing from {self.name}: ",
+            [t.name for t in tracks_online[online_index:]],
+        )
+        while online_index < len(tracks_online):
+            extra_tracks = [
+                {"uri": track.id, "positions": [online_index + pos]}
+                for pos, track in enumerate(
+                    tracks_online[online_index : online_index + API_LIMIT]
+                )
+            ]
+            for i in range(online_index, online_index + API_LIMIT):
+                if online_index < len(tracks_online):
+                    tracks_online.pop(online_index)
+            self.spotify.user_playlist_remove_specific_occurrences_of_tracks(
+                user, self.id, extra_tracks
             )
 
-        track_names_new = [get_track_name(id_, tracks_all) for id_ in track_ids_new]
-        print(f"Adding tracks to {name}: {track_names_new}")
-        for i in range(0, len(track_ids_new), API_LIMIT):
+        # Insert missing tracks
+        tracks = []
+        while new_tracks:
+            # Create run of sequential tracks
+            while not tracks or (new_tracks and new_tracks[0].pos == tracks[-1].pos + 1 and len(tracks) < API_LIMIT):
+                tracks.append(new_tracks.pop(0))
+            print(
+                f"Adding to {self.name}: ",
+                [(get_track_name(t.id, self.tracks), t.pos) for t in tracks],
+            )
             self.spotify.user_playlist_add_tracks(
-                user, self.id, track_ids_new[i : i + API_LIMIT]
+                user,
+                self.id,
+                [track.id for track in tracks],
+                tracks[0].pos,  # All tracks must be added from a single pos
             )
+            tracks = []
 
         print("Done.\n")
 
@@ -315,16 +392,37 @@ def get_spotify(s_creds):
     return spotipy.Spotify(auth=token)
 
 
-def select_fields(items, root=None, fields=TRACK_FIELDS) -> List[Dict]:
-    """Convert api results to dicts."""
-    return [
-        {k: t[root][k] if root is not None else t[k] for k in fields} for t in items
-    ]
+def select_fields(
+    items: Iterable[Mapping],
+    root: Optional[Iterable[str]] = None,
+    fields: Dict[str, Iterable[str]] = dict(TRACK_FIELDS),
+) -> List[Dict]:
+    """Convert api results to dicts.
+
+    :param items: A list of dictionary tracks.
+    :param root: A list of subcomponents of the track dictionaries which should be traversed before finding the fields.
+    :param fields: A dict of field names and the corresponding path (iterable) through a track dictionary to retrieve
+                   the associated value.
+    """
+
+    results = []
+    for item in items:
+        if root is not None:
+            for part in root:
+                item = item[part]
+        result = {}
+        for key, field in fields.items():
+            track = dict(item)
+            for part in field:
+                track = track[part]
+            result[key] = track
+        results.append(result)
+    return results
 
 
 def results_to_tracks(results: dict) -> List[Track]:
     """Convert api result dicts to tracks."""
-    dicts = select_fields(results, "track")
+    dicts = select_fields(results, TRACK_ROOT)
     return [Track(**d) for d in dicts]
 
 

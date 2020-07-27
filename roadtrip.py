@@ -5,7 +5,7 @@ import playlists as pl
 import random
 
 
-FAMILY_PLAYLISTS = tuple()
+FAMILY_PLAYLISTS = ("5cTkATCHoowXXcAnBa0FyZ", "4mE8nSohxr9m6m9yCN0HFQ", "3RuaHkL1UqCGMp26SmWqrf", "0O9GQn8ElOFTHcMCKf9nZn", "5JCtgNVLjrGKhyYNWptrrH")
 SCALE = 3
 
 creds = pl.get_credentials()
