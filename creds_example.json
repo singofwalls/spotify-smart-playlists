@@ -1,0 +1,15 @@
+{
+    "spotify": {
+        "username": "spotify-username",
+        "scopes": "scope1,scope2",
+        "client_id": "spotify-client-id",
+        "client_secret": "spotify-client-secret",
+        "redirect_uri": "spotify-redirect-uri"
+    },
+    "last.fm": {
+        "api_key": "lastfm-api-key",
+        "api_secret": "lastfm-api-secret",
+        "username": "lastfm-username",
+        "password": "lastfm-password"
+    }
+}

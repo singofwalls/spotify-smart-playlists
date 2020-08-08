@@ -7,9 +7,8 @@ import spotipy
 from spotipy import util
 
 import json
-import operator
 import reprlib
-from itertools import chain, zip_longest
+from itertools import chain
 
 # TODO: TQDM
 # TODO: Remove duplicates
@@ -33,39 +32,6 @@ PLAYLIST_FIELDS = {"id": ("id",), "name": ("name",)}
 API_LIMIT = 50
 
 
-def main():
-    """Create default playlists."""
-    creds = get_credentials()
-    spotify = get_spotify(creds)
-
-    saved_songs = get_saved_songs(spotify)
-    p_saved_songs = Playlist(spotify, "Liked Songs")
-    p_saved_songs += saved_songs
-
-    p_instrumental = Playlist(spotify, "All Instrumental", populate=True)
-
-    p_saved_bands = Playlist(spotify, "Liked Songs - Bands", populate=True)
-    remove_nonlocal(p_saved_bands)
-    p_saved_bands += p_saved_songs - p_instrumental
-    p_saved_bands.name = "Liked Songs - Bands"
-    p_saved_bands.publish()
-
-    p_saved_instrumentals = Playlist(
-        spotify, "Liked Songs - Instrumentals", populate=True
-    )
-    remove_nonlocal(p_saved_instrumentals)
-    p_saved_instrumentals += p_instrumental & saved_songs
-    p_saved_instrumentals.name = "Liked Songs - Instrumentals"
-    p_saved_instrumentals.publish()
-
-    p_save_songs_all = Playlist(spotify, "Liked Songs - All", populate=True)
-    remove_nonlocal(p_save_songs_all)
-    p_save_songs_all += p_saved_instrumentals + p_saved_bands
-    p_save_songs_all.name = "Liked Songs - All"
-    p_save_songs_all.publish()
-
-
-# Track = namedtuple("Track", TRACK_FIELDS)
 class Track:
     """Maintain fields related to a single track in a playlist."""
 
@@ -286,11 +252,11 @@ class Playlist:
             [t.name for t in tracks_online[online_index:]],
         )
         while online_index < len(tracks_online):
+            tracks = tracks_online[online_index : online_index + API_LIMIT]
             extra_tracks = [
                 {"uri": track.id, "positions": [online_index + pos]}
-                for pos, track in enumerate(
-                    tracks_online[online_index : online_index + API_LIMIT]
-                )
+                for pos, track in enumerate(tracks)
+                if track.id is not None
             ]
             for i in range(online_index, online_index + API_LIMIT):
                 if online_index < len(tracks_online):
@@ -303,7 +269,11 @@ class Playlist:
         tracks = []
         while new_tracks:
             # Create run of sequential tracks
-            while not tracks or (new_tracks and new_tracks[0].pos == tracks[-1].pos + 1 and len(tracks) < API_LIMIT):
+            while not tracks or (
+                new_tracks
+                and new_tracks[0].pos == tracks[-1].pos + 1
+                and len(tracks) < API_LIMIT
+            ):
                 tracks.append(new_tracks.pop(0))
             print(
                 f"Adding to {self.name}: ",
@@ -397,7 +367,7 @@ def select_fields(
     root: Optional[Iterable[str]] = None,
     fields: Dict[str, Iterable[str]] = dict(TRACK_FIELDS),
 ) -> List[Dict]:
-    """Convert api results to dicts.
+    """Convert spotify api results to dicts.
 
     :param items: A list of dictionary tracks.
     :param root: A list of subcomponents of the track dictionaries which should be traversed before finding the fields.
@@ -420,9 +390,9 @@ def select_fields(
     return results
 
 
-def results_to_tracks(results: dict) -> List[Track]:
-    """Convert api result dicts to tracks."""
-    dicts = select_fields(results, TRACK_ROOT)
+def results_to_tracks(results: dict, root=TRACK_ROOT) -> List[Track]:
+    """Convert spotify api result dicts to tracks."""
+    dicts = select_fields(results, root)
     return [Track(**d) for d in dicts]
 
 
@@ -430,7 +400,3 @@ def remove_nonlocal(playlist: Playlist):
     """Remove all nonlocal tracks from the playlist in-place."""
     playlist -= [track for track in playlist if not track.is_local]
     return playlist
-
-
-if __name__ == "__main__":
-    main()

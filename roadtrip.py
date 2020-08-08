@@ -5,8 +5,9 @@ import playlists as pl
 import random
 
 
-FAMILY_PLAYLISTS = ("5cTkATCHoowXXcAnBa0FyZ", "4mE8nSohxr9m6m9yCN0HFQ", "3RuaHkL1UqCGMp26SmWqrf", "0O9GQn8ElOFTHcMCKf9nZn", "5JCtgNVLjrGKhyYNWptrrH")
-SCALE = 5
+# FAMILY_PLAYLISTS = ("5cTkATCHoowXXcAnBa0FyZ", "4mE8nSohxr9m6m9yCN0HFQ", "3RuaHkL1UqCGMp26SmWqrf", "0O9GQn8ElOFTHcMCKf9nZn", "5JCtgNVLjrGKhyYNWptrrH")
+FAMILY_PLAYLISTS = ("6p0q7N2C7RThg72dAasU2C",)
+SCALE = 10
 
 creds = pl.get_credentials()
 spotify = pl.get_spotify(creds)
