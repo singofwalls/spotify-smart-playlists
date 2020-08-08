@@ -1,19 +1,18 @@
 """Create dynamic Spotify playlists using Playlist objects."""
+import json
+import reprlib
 import warnings
 from collections import namedtuple
-from typing import Iterable, List, Mapping, Dict, Optional, Sequence, OrderedDict
+from itertools import chain
+from typing import Iterable, List, Mapping, Dict, Optional, OrderedDict
 
 import spotipy
 from spotipy import util
 
-import json
-import reprlib
-from itertools import chain
-
 # TODO: TQDM
 # TODO: Remove duplicates
 # TODO: Find latest ids for tracks on Spotify
-
+from utility import find_match, clean, remove_extra
 
 CREDS_FILE = "creds.json"
 
@@ -25,15 +24,20 @@ TRACK_FIELDS = {
     "duration_ms": ("duration_ms",),
     "album": ("album", "name"),
     "artist": ("artists", 0, "name"),
+    "available_markets": ("available_markets",),
+    "linked_from": ("linked_from", "id"),
+    "is_playable": ("is_playable",),
 }
 PLAYLIST_FIELDS = {"id": ("id",), "name": ("name",)}
 
-
 API_LIMIT = 50
+USER_MARKET = "US"
 
 
 class Track:
     """Maintain fields related to a single track in a playlist."""
+
+    keys = ("name", "album", "artist", "is_local", "duration_ms")
 
     def __init__(self, *args, **kwargs):
         # Hardcode attributes so intellisense doesn't go mad
@@ -43,6 +47,9 @@ class Track:
         self.duration_ms = None
         self.album = None
         self.artist = None
+        self.available_markets = None
+        self.linked_from = None
+        self.original_id = None
 
         self.__dict__ = {key: None for key in TRACK_FIELDS.keys()}
         self.__dict__.update(
@@ -50,20 +57,32 @@ class Track:
         )
         self.__dict__.update(kwargs)
 
+        if self.linked_from:
+            self.original_id = self.id
+            self.id = self.linked_from
+
         self.__slots__ = tuple(TRACK_FIELDS.keys())
 
+    def get_fields(self):
+        """Get fields of this track for display."""
+        return {k: self.__dict__[k] for k in self.__class__.keys}
+
     def __hash__(self):
-        if not self.is_local:
-            return hash(self.id)
-        return hash(tuple(self.__dict__.items()))
+        # if not self.is_local:
+        #     return hash(self.id)
+        return hash(tuple(self.get_fields().items()))
 
     def __repr__(self):
-        return f"{self.__class__.__name__}({', '.join(f'{key}={repr(value)}' for key, value in self.__dict__.items() if not key.startswith('_'))})"
+        return f"{self.__class__.__name__}({', '.join(f'{key}={repr(val)}' for key, val in self.get_fields().items())})"
 
     def __eq__(self, other):
-        if not self.is_local:
-            return self.id == other.id
-        return self.__dict__ == other.__dict__
+        # if not self.is_local and not other.is_local:
+        #     return self.id == other.id
+        return self.get_fields() == other.get_fields()
+
+    def copy(self):
+        """Return a shallow copy of this track."""
+        return Track(**self.__dict__)
 
 
 class Playlist:
@@ -187,11 +206,9 @@ class Playlist:
     ):
         """Publish the playlist to spotify."""
 
-        def get_track_name(
-            track_id: str, search_list: Iterable[Track]
-        ) -> Optional[str]:
+        def get_track_name(track_id: str, track_list: Iterable[Track]) -> Optional[str]:
             """Find a track's name from id in a list of tracks."""
-            for t in search_list:
+            for t in track_list:
                 if t.id == track_id:
                     return t.name
             return None
@@ -205,7 +222,8 @@ class Playlist:
             playlist = self.spotify.user_playlist_create(user, name, public, desc)
             self.id = playlist["id"]
 
-        tracks_online = get_playlist_tracks(self.spotify, self.id)
+        tracks_online_old = get_playlist_tracks(self.spotify, self.id)
+        tracks_online, no_match = update_tracks(self.spotify, tracks_online_old)
 
         # Move, remove, and add tracks to correct positions
         new_tracks = []
@@ -233,13 +251,14 @@ class Playlist:
                     self.spotify.user_playlist_reorder_tracks(
                         user, self.id, shifted_track_index, online_index
                     )
+                    # Update local copy
                     tracks_online.insert(
                         online_index, tracks_online.pop(shifted_track_index)
                     )
                     online_index += 1
                 else:
                     warnings.warn(
-                        f"No local file for {track.name} available in online playlist {self.name} to move to spot {online_index+1}"
+                        f"No local file for {track.name} available in online playlist {self.name} to move to spot {online_index + 1}"
                     )
             else:
                 # Track missing from playlist, record position to insert into later
@@ -247,23 +266,57 @@ class Playlist:
                 added += 1
 
         # Remove extra tracks at end which are in wrong place
-        print(
-            f"Removing from {self.name}: ",
-            [t.name for t in tracks_online[online_index:]],
-        )
+        num_extra_tracks_local = 0
         while online_index < len(tracks_online):
+            # Partition tracks to be removed
             tracks = tracks_online[online_index : online_index + API_LIMIT]
-            extra_tracks = [
-                {"uri": track.id, "positions": [online_index + pos]}
-                for pos, track in enumerate(tracks)
-                if track.id is not None
-            ]
+            print(
+                f"Removing from {self.name}: ", [t.name for t in tracks],
+            )
+            extra_tracks_uri_dicts = []
+            extra_tracks_local = []
+            extra_tracks_id_map = {}
+            for pos, track in enumerate(tracks):
+                if track.is_local or (
+                    track.available_markets is not None and not track.available_markets
+                ):
+                    extra_tracks_local.append(online_index)
+                else:
+                    track_uri_dict = {
+                        "uri": track.id,
+                        "positions": [online_index],
+                    }
+                    extra_tracks_id_map[track.id] = track
+                    extra_tracks_uri_dicts.append(track_uri_dict)
+
+            # Update local copy
             for i in range(online_index, online_index + API_LIMIT):
                 if online_index < len(tracks_online):
+                    # Local copy must believe local tracks were removed even though they are actually placed on the end
                     tracks_online.pop(online_index)
-            self.spotify.user_playlist_remove_specific_occurrences_of_tracks(
-                user, self.id, extra_tracks
-            )
+
+            # Update remote copy
+            # TODO: Remove in batch again once failures are worked out
+            all_failed = []
+            for extra_track in extra_tracks_uri_dicts:
+                extra_track["positions"][0] += len(all_failed)
+                failed = remove_tracks(self.spotify, [extra_track], self.id, user)
+                if failed:
+                    all_failed += failed
+            if all_failed:
+                warnings.warn(
+                    f"Failed to remove {[extra_tracks_id_map[t_uri_dict['uri']] for t_uri_dict in all_failed]} from {self.name}"
+                )
+
+            num_extra_tracks_local += len(extra_tracks_local)
+            for track in extra_tracks_local:
+                self.spotify.user_playlist_reorder_tracks(
+                    user, self.id, track, len(tracks_online) + num_extra_tracks_local
+                )
+            if extra_tracks_local:
+                print(
+                    f"Added {len(extra_tracks_local)} extra local tracks to end of {self.name}: {[tracks[t - online_index] for t in extra_tracks_local]}"
+                )
 
         # Insert missing tracks
         tracks = []
@@ -287,7 +340,104 @@ class Playlist:
             )
             tracks = []
 
-        print("Done.\n")
+        print(f"{self.name} complete.\n")
+
+
+def update_tracks(spotify: spotipy.Spotify, tracks, exclude=False):
+    """Get links to tracks available in the USER_MARKET.
+
+    :param exclude: Remove tracks from playlist if not available in USER_MARKET
+    """
+    new_tracks = []
+    failed = []
+    for track in tracks:
+        closest_track = track
+        # if track.available_markets is None, it was found in a search for USER_MARKET and is therefore already updated
+        if (
+            not track.is_local
+            and track.available_markets is not None
+            and not track.available_markets
+        ):
+            best_result = search(spotify, track.name, track.album, track.artist)
+
+            if best_result:
+                closest_track = best_result
+            else:
+                # If no markets, track must be out of date
+                track.available_markets = tuple()
+                failed.append(track)
+                if exclude:
+                    continue
+
+        new_tracks.append(closest_track)
+
+    if failed:
+        suffix = " Removing"
+        if not exclude:
+            suffix = " Not removing because exclude flag is False"
+        warnings.warn(
+            f"Could not find tracks in {USER_MARKET} market: {failed}." + suffix
+        )
+
+    return new_tracks, failed
+
+
+def remove_tracks(
+    spotify: spotipy.Spotify, track_uri_dict: List[Dict], playlist_id: str, user: str
+) -> List[Dict]:
+    """Remove tracks from remote playlist.
+
+    :param track_uri_dict: list of track dicts containing uri and position
+    :returns: List of track_uri_dicts which failed to upload
+    """
+    try:
+        spotify.user_playlist_remove_specific_occurrences_of_tracks(
+            user, playlist_id, track_uri_dict
+        )
+    except spotipy.exceptions.SpotifyException:
+        if len(track_uri_dict) == 1:
+            return track_uri_dict
+        bottom_half = remove_tracks(
+            spotify, track_uri_dict[len(track_uri_dict) // 2 :], playlist_id, user
+        )
+        top_half = remove_tracks(
+            spotify, track_uri_dict[: len(track_uri_dict) // 2], playlist_id, user
+        )
+        return top_half + bottom_half
+    return []
+
+
+def search(spotify: spotipy.Spotify, name, album=None, artist=None, market=USER_MARKET):
+    """Get search results from spotify for a given song."""
+
+    def create_query(track):
+        """Create a search query from a track."""
+        query = f'"{track.name}"'
+        if track.artist:
+            query += f' artist:"{track.artist}"'
+        if track.album:
+            query += f' album:"{track.album}"'
+        return query
+
+    def album_searches(album_):
+        """Yield various potential album name searches."""
+        yield album_
+
+        yield clean(album_)
+        # Cleaning removes symbols which remove_extra looks for. remove_extra on original album only!
+        album_ = remove_extra(album_)
+        yield album_
+        album_ = clean(album_)
+        yield album_
+        yield None
+
+    for album_search in album_searches(album):
+        target_track = Track(name=name, album=album_search, artist=artist)
+        results = spotify.search(q=create_query(target_track), market=market)
+        matches = results_to_tracks(results["tracks"]["items"], [])
+        best_result = find_match(matches, target_track)
+        if best_result:
+            return best_result
 
 
 def sub_lists(own, other):
@@ -311,7 +461,7 @@ def intersect_lists(own, other):
 
 def get_playlist_tracks(spotify: spotipy.Spotify, playlist_id: str) -> List[Track]:
     """Load all songs from the given playlist."""
-    results = get_all(spotify, spotify.playlist_tracks(playlist_id))
+    results = get_all(spotify, spotify.playlist_tracks(playlist_id, market=USER_MARKET))
 
     return results_to_tracks(results)
 
@@ -383,8 +533,17 @@ def select_fields(
         result = {}
         for key, field in fields.items():
             track = dict(item)
+            missing = False
             for part in field:
-                track = track[part]
+                try:
+                    track = track[part]
+                except KeyError:
+                    missing = True
+                    break
+            if missing:
+                continue
+            if isinstance(track, list):
+                track = tuple(track)
             result[key] = track
         results.append(result)
     return results
