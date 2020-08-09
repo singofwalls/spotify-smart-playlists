@@ -1,12 +1,13 @@
-from collections import namedtuple, OrderedDict
+import random
+from collections import OrderedDict
+
+from tqdm import tqdm
 
 import playlists as pl
 
-import random
+print = tqdm.write
 
-
-# FAMILY_PLAYLISTS = ("5cTkATCHoowXXcAnBa0FyZ", "4mE8nSohxr9m6m9yCN0HFQ", "3RuaHkL1UqCGMp26SmWqrf", "0O9GQn8ElOFTHcMCKf9nZn", "5JCtgNVLjrGKhyYNWptrrH")
-FAMILY_PLAYLISTS = ("6p0q7N2C7RThg72dAasU2C",)
+FAMILY_PLAYLISTS = ("6p0q7N2C7RThg72dAasU2C", )
 SCALE = 10
 
 creds = pl.get_credentials()
@@ -24,7 +25,9 @@ format_p = lambda val: "{:<06.2f}".format(val)
 format_ = lambda val: "{:<6.2f}".format(val)
 
 while playlists:
-    playlist_chosen = random.choices(playlists, cum_weights=tuple(weight**SCALE for weight in cum_wait.values()))[0]
+    playlist_chosen = random.choices(
+        playlists, cum_weights=tuple(weight ** SCALE for weight in cum_wait.values())
+    )[0]
     song = random.choice(playlist_chosen)
     playlist_chosen -= song
     songs.append(song)
@@ -45,8 +48,21 @@ while playlists:
     for playlist in playlists:
         cum_wait[playlist] -= min_run
 
-    behind_after = (cum_wait[playlist_chosen] - min(cum_wait.values())) if playlist_chosen in playlists else -1
-    print("{:<40} {:<3} {:<9} {:<9} {:<9} {:<50}".format(cum_before, FAMILY_PLAYLISTS.index(playlist_chosen.name), format_(song.duration_ms/1000/60), format_(behind_before), format_(behind_after), song.name))
+    behind_after = (
+        (cum_wait[playlist_chosen] - min(cum_wait.values()))
+        if playlist_chosen in playlists
+        else -1
+    )
+    print(
+        "{:<40} {:<3} {:<9} {:<9} {:<9} {:<50}".format(
+            cum_before,
+            FAMILY_PLAYLISTS.index(playlist_chosen.name),
+            format_(song.duration_ms / 1000 / 60),
+            format_(behind_before),
+            format_(behind_after),
+            song.name,
+        )
+    )
 
 playlist_roadtrip += songs
 print(playlist_roadtrip)

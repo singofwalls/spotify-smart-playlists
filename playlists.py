@@ -9,10 +9,12 @@ from typing import Iterable, List, Mapping, Dict, Optional, OrderedDict
 import spotipy
 from spotipy import util
 
-# TODO: TQDM
 # TODO: Remove duplicates
-# TODO: Find latest ids for tracks on Spotify
+from tqdm import tqdm
+
 from utility import find_match, clean, remove_extra
+
+print = tqdm.write
 
 CREDS_FILE = "creds.json"
 
@@ -37,7 +39,7 @@ USER_MARKET = "US"
 class Track:
     """Maintain fields related to a single track in a playlist."""
 
-    keys = ("name", "album", "artist", "is_local", "duration_ms")
+    keys = ("name", "album", "artist", "is_local")
 
     def __init__(self, *args, **kwargs):
         # Hardcode attributes so intellisense doesn't go mad
@@ -68,16 +70,12 @@ class Track:
         return {k: self.__dict__[k] for k in self.__class__.keys}
 
     def __hash__(self):
-        # if not self.is_local:
-        #     return hash(self.id)
         return hash(tuple(self.get_fields().items()))
 
     def __repr__(self):
         return f"{self.__class__.__name__}({', '.join(f'{key}={repr(val)}' for key, val in self.get_fields().items())})"
 
     def __eq__(self, other):
-        # if not self.is_local and not other.is_local:
-        #     return self.id == other.id
         return self.get_fields() == other.get_fields()
 
     def copy(self):
@@ -104,7 +102,7 @@ class Playlist:
         if self.id is None:
             self._find_id()
         if self.id is not None and populate:
-            self._populate()
+            self.load_tracks_from_spotify()
 
     def __repr__(self):
         tracks = [track.name for track in self.tracks]
@@ -186,8 +184,8 @@ class Playlist:
         new.tracks = self.tracks[:]
         return new
 
-    def _populate(self):
-        """Populate the playlist with tracks from the playlist id."""
+    def load_tracks_from_spotify(self):
+        """Overwrite the playlist with tracks from the playlist id."""
         self.tracks = list(get_playlist_tracks(self.spotify, self.id))
 
     def _find_id(self):
@@ -311,7 +309,7 @@ class Playlist:
             tracks_to_move = [extra_tracks_local_num_map[num + i + 1] for i, num in enumerate(extra_tracks_local)]
             for track_pos in extra_tracks_local:
                 self.spotify.user_playlist_reorder_tracks(
-                    user, self.id, track_pos, len(tracks_online) + num_extra_tracks_local - 1
+                    user, self.id, track_pos, len(tracks_online) + num_extra_tracks_local
                 )
             if extra_tracks_local:
                 print(
@@ -476,11 +474,13 @@ def get_saved_songs(spotify: spotipy.Spotify):
     return results_to_tracks(results)
 
 
-def get_playlists(spotify: spotipy.Spotify):
-    """Get a list of user playlist names and ids."""
-    playlists = get_all(spotify, spotify.current_user_playlists())
+def get_playlists(spotify: spotipy.Spotify, reload=False) -> List[Dict[str, str]]:
+    """Get a list of user playlist names and ids. Memoized."""
+    if "playlists" not in get_playlists.__dict__ or reload:
+        playlists = get_all(spotify, spotify.current_user_playlists())
+        get_playlists.playlists = select_fields(playlists, fields=PLAYLIST_FIELDS)
 
-    return select_fields(playlists, fields=PLAYLIST_FIELDS)
+    return get_playlists.playlists
 
 
 def get_all(spotify: spotipy.Spotify, results: dict):

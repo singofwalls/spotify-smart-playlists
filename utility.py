@@ -7,7 +7,6 @@ from textdistance import levenshtein
 from tqdm import tqdm
 from unidecode import unidecode
 
-
 MINIMUM_SCORES = {"artist": 0.8, "name": 0.7, "album": 0}
 MINIMUM_SCORE = 1
 
@@ -50,7 +49,10 @@ def search_list(search_tracks: Union[str, Iterable], target_track, search_tracks
     if artist:
         # Check if memoized
         if search_tracks_name and search_tracks_name in search_list.grouped_lists:
-            suffix = f" in {search_tracks}"
+            try:
+                suffix = f" in {search_tracks.name}"
+            except AttributeError:
+                suffix = f" in {search_tracks}"
             grouped_list = search_list.grouped_lists[search_tracks_name]
             if artist in grouped_list:
                 search_tracks = grouped_list[artist]
@@ -66,7 +68,7 @@ def search_list(search_tracks: Union[str, Iterable], target_track, search_tracks
 
     matches = []
     for track in tqdm(
-        search_tracks, desc=f"Searching for {target_track}" + suffix, leave=False
+        search_tracks, desc=f"Searching for {target_track.name}" + suffix, leave=False
     ):
         good = True
         scores = []
