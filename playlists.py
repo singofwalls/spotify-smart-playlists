@@ -423,6 +423,9 @@ def search(spotify: spotipy.Spotify, name, album=None, artist=None, market=USER_
         """Yield various potential album name searches."""
         yield album_
 
+        if not album_:
+            return None
+
         yield clean(album_)
         # Cleaning removes symbols which remove_extra looks for. remove_extra on original album only!
         album_ = remove_extra(album_)

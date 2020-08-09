@@ -24,10 +24,10 @@ p_saved_songs = Playlist(spotify, "Liked Songs")
 p_saved_songs += saved_songs
 
 p_current_rotation = Playlist(spotify, "Current Rotation", populate=True)
+p_instrumental = Playlist(spotify, "All Instrumental", populate=True)
 
 
 def create_smart_playlists():
-    p_instrumental = Playlist(spotify, "All Instrumental", populate=True)
     p_local = Playlist(spotify, "Local Files", populate=True)
 
     p_all_saved = p_saved_songs + p_local
@@ -64,19 +64,17 @@ def create_lastfm_playlist():
 
     lastfm_network = get_lastfm(creds["last.fm"])
     lastfm_user = lastfm_network.get_authenticated_user()
-    lastfm_top_tracks_all = lastfm_user.get_top_tracks(
-        limit=100, period="PERIOD_OVERALL"
-    )
-    lastfm_top_tracks_recent = lastfm_user.get_top_tracks(
-        limit=100, period="PERIOD_3MONTHS"
-    )
+    lastfm_top_tracks = []
+    # Available periods as per last.fm docs (NOT PYLAST DOCS): overall | 7day | 1month | 3month | 6month | 12month
+    # Using pylast period format (PERIOD_OVERALL | PERIOD_7DAYS | PERIOD_1MONTH | etc) just returns results for overall
+    for num, period in ((150, "overall"), (100, "3month"), (30, "1month"), (10, "7day")):
+        lastfm_top_tracks += lastfm_user.get_top_tracks(limit=num, period=period)
 
     tracks = []
     missing = []
+    searched_tracks = []
     for result in tqdm(
-        lastfm_top_tracks_all + lastfm_top_tracks_recent,
-        "Finding lastfm songs on Spotify",
-        leave=False,
+        lastfm_top_tracks, "Finding lastfm songs on Spotify", leave=False,
     ):
         name = result.item.get_name()
         album = None
@@ -84,7 +82,8 @@ def create_lastfm_playlist():
         try:
             album = result.item.get_album().get_name()
         except AttributeError:
-            warnings.warn(f"No album associated with {name}")
+            pass
+            # warnings.warn(f"No album associated with {name}")
         try:
             artist = result.item.get_artist().get_name()
         except AttributeError:
@@ -92,6 +91,10 @@ def create_lastfm_playlist():
 
         # Search current_rotation and saved_songs
         target = Track(name=name, album=album, artist=artist)
+        if target in searched_tracks:
+            continue
+        searched_tracks.append(target)
+
         found = False
         for group in search_lists:
             best_result = find_match(search_lists[group], target, group)
@@ -107,19 +110,22 @@ def create_lastfm_playlist():
         # Try spotify search
 
         best_result = search(spotify, name, album, artist)
-        if not best_result:
-            warnings.warn(
-                f"Could not find any spotify match for {(name, album, artist)}"
-            )
-            missing.append(target)
-            continue
 
         if best_result:
             tracks.append(best_result)
             continue
+        else:
+            warnings.warn(
+                f"Could not find any spotify match for {(name, album, artist)}"
+            )
+            missing.append(target)
 
-    print("Could not find matches for", missing)
+    if missing:
+        print("\n**Could not find matches for", missing)
+    p_current_rotation.tracks.clear()
     p_current_rotation += tracks
+    p_current_rotation -= p_instrumental
+
     p_current_rotation.publish()
 
 
@@ -130,4 +136,3 @@ search_lists = {
 
 # create_smart_playlists()
 create_lastfm_playlist()
-
