@@ -35,18 +35,14 @@ def create_smart_playlists():
 
     p_saved_bands = Playlist(spotify, "Liked Songs - Bands")
     p_saved_bands += p_all_saved - p_instrumental
-    # p_saved_bands -= [track for track in p_saved_bands if track.is_local]
-    p_saved_bands.name = "Liked Songs - Bands"
     p_saved_bands.publish()
 
     p_saved_instrumentals = Playlist(spotify, "Liked Songs - Instrumentals")
     p_saved_instrumentals += p_instrumental & p_all_saved
-    p_saved_instrumentals.name = "Liked Songs - Instrumentals"
     p_saved_instrumentals.publish()
 
     p_save_songs_all = Playlist(spotify, "Liked Songs - All")
     p_save_songs_all += p_saved_instrumentals + p_saved_bands
-    p_save_songs_all.name = "Liked Songs - All"
     p_save_songs_all.publish()
 
 
@@ -78,9 +74,9 @@ def create_lastfm_playlist():
     tracks = []
     missing = []
     for result in tqdm(
-            lastfm_top_tracks_all + lastfm_top_tracks_recent,
-            "Finding lastfm songs on Spotify",
-            leave=False,
+        lastfm_top_tracks_all + lastfm_top_tracks_recent,
+        "Finding lastfm songs on Spotify",
+        leave=False,
     ):
         name = result.item.get_name()
         album = None
@@ -132,5 +128,6 @@ search_lists = {
     "saved_songs": p_saved_songs,
 }
 
-create_smart_playlists()
-# create_lastfm_playlist()
+# create_smart_playlists()
+create_lastfm_playlist()
+

@@ -183,7 +183,7 @@ class Playlist:
     def copy(self):
         """Copy tracks into new playlist."""
         new = Playlist(self.spotify, self.name, self.id, populate=False)
-        new.tracks = self.tracks
+        new.tracks = self.tracks[:]
         return new
 
     def _populate(self):
@@ -245,9 +245,9 @@ class Playlist:
                 if track in tracks_online[online_index:]:
                     # Move track to correct position
                     shifted_track_index = tracks_online.index(track, online_index)
-                    print(
-                        f"Moving track in {self.name}: {track.name} from {shifted_track_index} to {online_index}"
-                    )
+                    # print(
+                    #     f"Moving track in {self.name}: {track.name} from {shifted_track_index} to {online_index}"
+                    # )
                     self.spotify.user_playlist_reorder_tracks(
                         user, self.id, shifted_track_index, online_index
                     )
@@ -270,21 +270,26 @@ class Playlist:
         while online_index < len(tracks_online):
             # Partition tracks to be removed
             tracks = tracks_online[online_index : online_index + API_LIMIT]
-            print(
-                f"Removing from {self.name}: ", [t.name for t in tracks],
-            )
+            # print(
+            #     f"Removing from {self.name}: ", [t.name for t in tracks],
+            # )
             extra_tracks_uri_dicts = []
             extra_tracks_local = []
             extra_tracks_id_map = {}
+            extra_tracks_local_num_map = {}
+            local_files = 0
             for pos, track in enumerate(tracks):
                 if track.is_local or (
                     track.available_markets is not None and not track.available_markets
                 ):
-                    extra_tracks_local.append(online_index)
+                    index = online_index
+                    local_files += 1
+                    extra_tracks_local.append(index)
+                    extra_tracks_local_num_map[index + local_files] = track
                 else:
                     track_uri_dict = {
                         "uri": track.id,
-                        "positions": [online_index],
+                        "positions": [online_index + pos],
                     }
                     extra_tracks_id_map[track.id] = track
                     extra_tracks_uri_dicts.append(track_uri_dict)
@@ -296,26 +301,21 @@ class Playlist:
                     tracks_online.pop(online_index)
 
             # Update remote copy
-            # TODO: Remove in batch again once failures are worked out
-            all_failed = []
-            for extra_track in extra_tracks_uri_dicts:
-                extra_track["positions"][0] += len(all_failed)
-                failed = remove_tracks(self.spotify, [extra_track], self.id, user)
-                if failed:
-                    all_failed += failed
-            if all_failed:
-                warnings.warn(
-                    f"Failed to remove {[extra_tracks_id_map[t_uri_dict['uri']] for t_uri_dict in all_failed]} from {self.name}"
+            failed = remove_tracks(self.spotify, extra_tracks_uri_dicts, self.id, user)
+            if failed:
+                raise RuntimeError(
+                    f"Failed to remove {[extra_tracks_id_map[t_uri_dict['uri']].name for t_uri_dict in failed]} from {self.name}"
                 )
 
             num_extra_tracks_local += len(extra_tracks_local)
-            for track in extra_tracks_local:
+            tracks_to_move = [extra_tracks_local_num_map[num + i + 1] for i, num in enumerate(extra_tracks_local)]
+            for track_pos in extra_tracks_local:
                 self.spotify.user_playlist_reorder_tracks(
-                    user, self.id, track, len(tracks_online) + num_extra_tracks_local
+                    user, self.id, track_pos, len(tracks_online) + num_extra_tracks_local - 1
                 )
             if extra_tracks_local:
                 print(
-                    f"Added {len(extra_tracks_local)} extra local tracks to end of {self.name}: {[tracks[t - online_index] for t in extra_tracks_local]}"
+                    f"Added {len(extra_tracks_local)} extra local tracks to end of {self.name}: {[track.name for track in tracks_to_move]}"
                 )
 
         # Insert missing tracks
@@ -328,10 +328,10 @@ class Playlist:
                 and len(tracks) < API_LIMIT
             ):
                 tracks.append(new_tracks.pop(0))
-            print(
-                f"Adding to {self.name}: ",
-                [(get_track_name(t.id, self.tracks), t.pos) for t in tracks],
-            )
+            # print(
+            #     f"Adding to {self.name}: ",
+            #     [(get_track_name(t.id, self.tracks), t.pos) for t in tracks],
+            # )
             self.spotify.user_playlist_add_tracks(
                 user,
                 self.id,

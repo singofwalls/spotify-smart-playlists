@@ -43,7 +43,7 @@ def search_list(search_tracks: Union[str, Iterable], target_track, search_tracks
     :param search_tracks_name: if provided, check if search_tracks is memoized by name and memoize groups if not
     """
     if "grouped_lists" not in search_list.__dict__:
-        search_list.group_lists = {}
+        search_list.grouped_lists = {}
 
     suffix = ""
     artist = target_track.artist.lower()
@@ -60,7 +60,7 @@ def search_list(search_tracks: Union[str, Iterable], target_track, search_tracks
             groups = group_by_artist(search_tracks)
             # Memoize
             if search_tracks_name:
-                search_list.group_lists[search_tracks_name] = groups
+                search_list.grouped_lists[search_tracks_name] = groups
             if artist in groups:
                 search_tracks = groups[artist]
 
