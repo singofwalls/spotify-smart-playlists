@@ -43,6 +43,7 @@ cutoff_date = cutoff_date.replace(day=1, hour=0, minute=0, second=0, microsecond
 
 
 def create_smart_playlists():
+    global spotify
     p_local = Playlist(spotify, "Local Files", populate=True)
 
     p_all_saved = p_saved_songs + p_local
@@ -51,10 +52,12 @@ def create_smart_playlists():
     p_saved_bands = Playlist(spotify, "Liked Songs - Bands")
     p_saved_bands += p_all_saved - p_instrumental
     p_saved_bands.publish()
+    spotify = get_spotify(creds["spotify"])  # To make sure we don't expire
 
     p_saved_instrumentals = Playlist(spotify, "Liked Songs - Instrumentals")
     p_saved_instrumentals += p_instrumental & p_all_saved
     p_saved_instrumentals.publish()
+    spotify = get_spotify(creds["spotify"])  # To make sure we don't expire
 
     p_save_songs_all = Playlist(spotify, "Liked Songs - All")
     p_save_songs_all += p_saved_instrumentals + p_saved_bands
@@ -202,5 +205,5 @@ search_lists = {
     "saved_songs": p_saved_songs,
 }
 
-# create_smart_playlists()
-create_current_rotation(True)
+create_smart_playlists()
+# create_current_rotation(True)
