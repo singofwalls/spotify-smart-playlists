@@ -13,6 +13,7 @@ FAMILY_PLAYLISTS = (
     "1WN0DhY37vI954VYCuopVl",
     "5cTkATCHoowXXcAnBa0FyZ",
 )
+BLACK_LIST_PLAYLIST = "4eRsAraBhmj3kXU0CY5byO"
 ORDERED_BIAS = 2
 FAMILY_PLAYLISTS_NAMES = ("Erin", "Randy", "Brady", "Graham", "Reece", "FAT", "651")
 PLAYLISTS_ORDERED = (False, False, False, False, True, False, False)
@@ -20,7 +21,7 @@ PLAYLISTS_ORDERED = (False, False, False, False, True, False, False)
 MAX_RUN = 3  # Maximum number of songs one person can have in a row
 SCALE = 2  # Take weights to this power
 
-UPDATE = False
+UPDATE = True
 FUZZY_DUPE_CHECKING = True
 
 creds = pl.get_credentials()
@@ -30,6 +31,7 @@ playlists = [pl.Playlist(spotify, None, id_, True) for id_ in FAMILY_PLAYLISTS]
 cum_wait = OrderedDict((player, 0) for player in playlists)
 
 playlist_roadtrip = pl.Playlist(spotify, "2020 Family Summer Vacation")
+playlist_blacklist = pl.Playlist(spotify, None, id_=BLACK_LIST_PLAYLIST, populate=True)
 songs = []
 
 WAIT_LEN = 10  # Length of the cumulative waits displays
@@ -130,6 +132,15 @@ while playlists:
         playlists.remove(playlist_chosen)
         del cum_wait[playlist_chosen]
 
+    if song in playlist_blacklist:
+        print(f"Song for {playlist_author} already played in blacklist:", song)
+        continue
+    if FUZZY_DUPE_CHECKING:
+        match = find_match(playlist_blacklist, song)
+        if match:
+            print(f"Fuzzy match for {playlist_author} already played in blacklist:", song)
+            continue
+
     if song in songs:
         print(f"Exact duplicate found for {playlist_author} in master playlist:", song)
         continue
@@ -179,5 +190,3 @@ for dupe in dupes:
 
 if UPDATE:
     playlist_roadtrip.publish(public=True)
-
-# TODO[reece]: Look for duplicates
