@@ -12,75 +12,16 @@ from spotipy import util
 # TODO: Remove duplicates
 from tqdm import tqdm
 
-from utility import find_match, clean, remove_extra
+from utility import find_match, clean, remove_extra, Track, TRACK_FIELDS, TRACK_ROOT
 
 print = tqdm.write
 
 CREDS_FILE = "creds.json"
 
-TRACK_ROOT = ("track",)
-TRACK_FIELDS = {
-    "id": ("id",),
-    "name": ("name",),
-    "is_local": ("is_local",),
-    "duration_ms": ("duration_ms",),
-    "album": ("album", "name"),
-    "artist": ("artists", 0, "name"),
-    "available_markets": ("available_markets",),
-    "linked_from": ("linked_from", "id"),
-    "is_playable": ("is_playable",),
-}
 PLAYLIST_FIELDS = {"id": ("id",), "name": ("name",)}
 
 API_LIMIT = 50
 USER_MARKET = "US"
-
-
-class Track:
-    """Maintain fields related to a single track in a playlist."""
-
-    keys = ("name", "album", "artist", "is_local")
-
-    def __init__(self, *args, **kwargs):
-        # Hardcode attributes so intellisense doesn't go mad
-        self.id = None
-        self.name = None
-        self.is_local = None
-        self.duration_ms = None
-        self.album = None
-        self.artist = None
-        self.available_markets = None
-        self.linked_from = None
-        self.original_id = None
-
-        self.__dict__ = {key: None for key in TRACK_FIELDS.keys()}
-        self.__dict__.update(
-            {key: value for key, value in zip(TRACK_FIELDS.keys(), args)}
-        )
-        self.__dict__.update(kwargs)
-
-        if self.linked_from:
-            self.original_id = self.id
-            self.id = self.linked_from
-
-        self.__slots__ = tuple(TRACK_FIELDS.keys())
-
-    def get_fields(self):
-        """Get fields of this track for display."""
-        return {k: self.__dict__[k] for k in self.__class__.keys}
-
-    def __hash__(self):
-        return hash(tuple(self.get_fields().items()))
-
-    def __repr__(self):
-        return f"{self.__class__.__name__}({', '.join(f'{key}={repr(val)}' for key, val in self.get_fields().items())})"
-
-    def __eq__(self, other):
-        return self.get_fields() == other.get_fields()
-
-    def copy(self):
-        """Return a shallow copy of this track."""
-        return Track(**self.__dict__)
 
 
 class Playlist:
@@ -89,8 +30,8 @@ class Playlist:
     def __init__(
         self,
         spotify: spotipy.Spotify,
-        name: str,
-        id_: str = None,
+        name: Optional[str],
+        id_: Optional[str] = None,
         populate: bool = False,
         allow_duplicates: bool = False,
     ):
@@ -99,8 +40,10 @@ class Playlist:
         self.tracks: list = []
         self.id = id_
         self.allow_duplicates = allow_duplicates
-        if self.id is None:
+        if self.id is None and name is not None:
             self._find_id()
+        if self.name is None and self.id is not None:
+            self._find_name()
         if self.id is not None and populate:
             self.load_tracks_from_spotify()
 
@@ -109,7 +52,7 @@ class Playlist:
         return f"Playlist(name={self.name}, tracks={reprlib.repr(tracks)})"
 
     def __add__(self, other):
-        """Add tracks from both playlists or tracklist."""
+        """Add tracks from both playlists or track list."""
         # Set addition is really union "or"
         return self._membership_op(other, lambda s, o: list(chain(s, o)))
 
@@ -126,7 +69,7 @@ class Playlist:
         return self.__add__(other)
 
     def __iadd__(self, other):
-        """Add tracks from both playlists or tracklist inplace."""
+        """Add tracks from both playlists or track list inplace."""
         # Set addition is really union "or"
         return self._membership_op(other, lambda s, o: list(chain(s, o)), True)
 
@@ -176,7 +119,7 @@ class Playlist:
         return iter(self.tracks)
 
     def __getitem__(self, index):
-        return tuple(self.tracks)[index]
+        return self.tracks[index]
 
     def copy(self):
         """Copy tracks into new playlist."""
@@ -194,6 +137,11 @@ class Playlist:
         name_map = {p["name"]: p["id"] for p in playlists}
         if self.name in name_map:
             self.id = name_map[self.name]
+
+    def _find_name(self):
+        """Update name with name from matching playlist id in Spotify."""
+        playlist = self.spotify.playlist(self.id)
+        self.name = playlist["name"]
 
     def publish(
         self,
@@ -243,9 +191,7 @@ class Playlist:
                 if track in tracks_online[online_index:]:
                     # Move track to correct position
                     shifted_track_index = tracks_online.index(track, online_index)
-                    # print(
-                    #     f"Moving track in {self.name}: {track.name} from {shifted_track_index} to {online_index}"
-                    # )
+                    # print(f"Moving track in {self.name}: {track.name} from {shifted_track_index} to {online_index}")
                     self.spotify.user_playlist_reorder_tracks(
                         user, self.id, shifted_track_index, online_index
                     )
@@ -256,7 +202,8 @@ class Playlist:
                     online_index += 1
                 else:
                     warnings.warn(
-                        f"No local file for {track.name} available in online playlist {self.name} to move to spot {online_index + 1}"
+                        f"No local file for {track} available in "
+                        f"online playlist {self.name} to move to spot {online_index + 1}"
                     )
             else:
                 # Track missing from playlist, record position to insert into later
@@ -268,9 +215,7 @@ class Playlist:
         while online_index < len(tracks_online):
             # Partition tracks to be removed
             tracks = tracks_online[online_index : online_index + API_LIMIT]
-            # print(
-            #     f"Removing from {self.name}: ", [t.name for t in tracks],
-            # )
+            # print(f"Removing from {self.name}: ", [t.name for t in tracks],)
             extra_tracks_uri_dicts = []
             extra_tracks_local = []
             extra_tracks_id_map = {}
@@ -302,18 +247,26 @@ class Playlist:
             failed = remove_tracks(self.spotify, extra_tracks_uri_dicts, self.id, user)
             if failed:
                 raise RuntimeError(
-                    f"Failed to remove {[extra_tracks_id_map[t_uri_dict['uri']].name for t_uri_dict in failed]} from {self.name}"
+                    f"Failed to remove {[extra_tracks_id_map[t_uri_dict['uri']].name for t_uri_dict in failed]} "
+                    f"from {self.name}"
                 )
 
             num_extra_tracks_local += len(extra_tracks_local)
-            tracks_to_move = [extra_tracks_local_num_map[num + i + 1] for i, num in enumerate(extra_tracks_local)]
+            tracks_to_move = [
+                extra_tracks_local_num_map[num + i + 1]
+                for i, num in enumerate(extra_tracks_local)
+            ]
             for track_pos in extra_tracks_local:
                 self.spotify.user_playlist_reorder_tracks(
-                    user, self.id, track_pos, len(tracks_online) + num_extra_tracks_local
+                    user,
+                    self.id,
+                    track_pos,
+                    len(tracks_online) + num_extra_tracks_local,
                 )
             if extra_tracks_local:
                 print(
-                    f"Added {len(extra_tracks_local)} extra local tracks to end of {self.name}: {[track.name for track in tracks_to_move]}"
+                    f"Added {len(extra_tracks_local)} extra local tracks to end of {self.name}: "
+                    f"{[track.name for track in tracks_to_move]}"
                 )
 
         # Insert missing tracks
@@ -326,10 +279,7 @@ class Playlist:
                 and len(tracks) < API_LIMIT
             ):
                 tracks.append(new_tracks.pop(0))
-            # print(
-            #     f"Adding to {self.name}: ",
-            #     [(get_track_name(t.id, self.tracks), t.pos) for t in tracks],
-            # )
+            # print(f"Adding to {self.name}: ", [(get_track_name(t.id, self.tracks), t.pos) for t in tracks],)
             self.spotify.user_playlist_add_tracks(
                 user,
                 self.id,
@@ -518,7 +468,7 @@ def get_spotify(s_creds):
 def select_fields(
     items: Iterable[Mapping],
     root: Optional[Iterable[str]] = None,
-    fields: Dict[str, Iterable[str]] = dict(TRACK_FIELDS),
+    fields: Dict[str, Iterable[str]] = None,
 ) -> List[Dict]:
     """Convert spotify api results to dicts.
 
@@ -527,6 +477,9 @@ def select_fields(
     :param fields: A dict of field names and the corresponding path (iterable) through a track dictionary to retrieve
                    the associated value.
     """
+
+    if fields is None:
+        fields = TRACK_FIELDS
 
     results = []
     for item in items:

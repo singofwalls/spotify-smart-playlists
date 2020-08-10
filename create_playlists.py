@@ -1,8 +1,9 @@
 """Create default playlists."""
+import calendar
 import re
 import warnings
-import calendar
 from datetime import datetime, timedelta
+from typing import Optional
 
 import pylast
 from tqdm import tqdm
@@ -12,14 +13,13 @@ from playlists import (
     get_spotify,
     get_saved_songs,
     Playlist,
-    Track,
     search,
     get_playlists,
     get_playlist_tracks,
 )
 
 # warnings.simplefilter("ignore")
-from utility import find_match
+from utility import find_match, Track
 
 print = tqdm.write
 
@@ -37,12 +37,16 @@ p_all_monthly = Playlist(spotify, "All Monthly", populate=True)
 
 today = datetime.today()
 # number of months before today to include in monthly_playlist
-monthly_num_months_previous = 12
-cutoff_date = datetime.today() - timedelta(days=monthly_num_months_previous * 30)
-cutoff_date = cutoff_date.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+MONTHLY_BACK_MONTHS: Optional[int] = None
+
+cutoff_date = None
+if MONTHLY_BACK_MONTHS:
+    cutoff_date = datetime.today() - timedelta(days=MONTHLY_BACK_MONTHS * 30)
+    cutoff_date = cutoff_date.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
 
 def create_smart_playlists():
+    """Create the liked songs playlists."""
     global spotify
     p_local = Playlist(spotify, "Local Files", populate=True)
 
@@ -158,10 +162,11 @@ def update_lastfm_playlist():
 def update_all_monthly_playlist():
     """Compile all monthly playlists into one."""
     global p_all_monthly
+    p_all_monthly.allow_duplicates = False
 
     months = tuple(month.lower() for month in calendar.month_name)[1:]
     months_str = "|".join(months)
-    match = re.compile(f"({months_str})(-({months_str}))" + "{0,1} [0-9]{4}")
+    match = re.compile(f"({months_str})(-({months_str}))" + "? [0-9]{4}")
     monthly_playlist_ids = []
     for playlist_id in get_playlists(spotify):
         name = playlist_id["name"].lower()
@@ -171,12 +176,12 @@ def update_all_monthly_playlist():
                 first_month = name.split("-")[0]
 
             date = datetime.strptime(f"{first_month.title()} {year}", "%B %Y")
-            if date >= cutoff_date:
-                monthly_playlist_ids.append(playlist_id["id"])
+            if cutoff_date is None or date >= cutoff_date:
+                monthly_playlist_ids.append((date, playlist_id["id"]))
 
     p_all_monthly.tracks.clear()
-    for playlist_id in monthly_playlist_ids:
-        p_all_monthly += get_playlist_tracks(spotify, playlist_id)
+    for playlist in sorted(monthly_playlist_ids, key=lambda p: p[0], reverse=True):
+        p_all_monthly += get_playlist_tracks(spotify, playlist[1])
 
     p_all_monthly.publish()
 
@@ -205,5 +210,6 @@ search_lists = {
     "saved_songs": p_saved_songs,
 }
 
-create_smart_playlists()
-# create_current_rotation(True)
+# create_smart_playlists()
+update_all_monthly_playlist()
+# create_current_rotation(False, False)
