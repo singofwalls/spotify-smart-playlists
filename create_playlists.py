@@ -34,6 +34,7 @@ p_current_rotation = Playlist(spotify, "Current Rotation", populate=True)
 p_lastfm_top = Playlist(spotify, "Lastfm Top", populate=True)
 p_instrumental = Playlist(spotify, "All Instrumental", populate=True)
 p_all_monthly = Playlist(spotify, "All Monthly", populate=True)
+p_all_monthly.allow_duplicates = True
 
 today = datetime.today()
 # number of months before today to include in monthly_playlist
@@ -162,7 +163,6 @@ def update_lastfm_playlist():
 def update_all_monthly_playlist():
     """Compile all monthly playlists into one."""
     global p_all_monthly
-    p_all_monthly.allow_duplicates = False
 
     months = tuple(month.lower() for month in calendar.month_name)[1:]
     months_str = "|".join(months)
@@ -197,8 +197,8 @@ def create_current_rotation(update_lastfm=False, update_monthly=True):
         update_all_monthly_playlist()
 
     p_current_rotation.tracks.clear()
-    p_current_rotation += p_lastfm_top
     p_current_rotation += p_all_monthly
+    p_current_rotation += p_lastfm_top
 
     p_current_rotation -= p_instrumental
 
@@ -212,4 +212,4 @@ search_lists = {
 
 # create_smart_playlists()
 update_all_monthly_playlist()
-# create_current_rotation(False, False)
+create_current_rotation(False, False)

@@ -33,7 +33,7 @@ SONG_LIST_FILE = "song_list.txt"
 
 MAX_RUN = 3  # Maximum number of songs one person can have in a row
 MAX_WAIT = 20  # Number of minutes someone can wait before being forced
-SCALE = 2  # Take weights to this power
+SCALE = 3  # Take weights to this power
 SUPPRESS_UNIMPORTANT = True  # Set weight of unimportant playlists to max of 1.5 * max weight of important playlists
 MAX_SCALE_UNIMPORTANT = 1  # Multiply max important weight by this scale to get max weight possible for unimportant
 
@@ -91,7 +91,9 @@ run = 1
 last_playlist = None
 dupes = []
 person_song_map = []
-last_play = {playlist: 0 for playlist in FAMILY_PLAYLISTS}
+last_play = {playlist_id: 0 for playlist_id in FAMILY_PLAYLISTS}
+total_cumulative_playtime = {playlist_id: 0 for playlist_id in FAMILY_PLAYLISTS}
+total_cumulative_plays = {playlist_id: 0 for playlist_id in FAMILY_PLAYLISTS}
 main_end = False
 while playlists:
     # TODO: Clean option selection by setting weights to 0 instead of removing
@@ -152,6 +154,7 @@ while playlists:
 
     song = random.choices(playlist_chosen.tracks, weights=weights)[0]
     playlist_chosen -= song
+    duration = song.duration_ms / 1000 / 60
 
     most_behind = max(cum_wait.values())
     index = tuple(cum_wait.values()).index(most_behind)
@@ -221,19 +224,24 @@ while playlists:
     else:
         run += 1
 
-    duration = song.duration_ms / 1000 / 60
     person_song_map.append(
         (
             playlist_author,
-            format_p(last_play[playlist_chosen.id]),
-            format_p(duration),
+            last_play[playlist_chosen.id]/1440,
+            total_cumulative_playtime[playlist_chosen.id]/1440,
+            total_cumulative_plays[playlist_chosen.id],
             len(playlist_chosen),
             song.name,
             song.artist,
             song.album,
+            duration/1440,
+            sum((s.duration_ms/1000/60 for s in songs))/1440,
             main_end,
         )
     )
+
+    total_cumulative_playtime[playlist_chosen.id] += duration
+    total_cumulative_plays[playlist_chosen.id] += 1
 
     last_play[playlist_chosen.id] = 0
     for playlist in playlists:
@@ -268,15 +276,18 @@ print(playlist_roadtrip)
 for dupe in dupes:
     print("FUZZY DUPLICATES REMOVED:", dupe)
 print("\nSONG_LIST")
-line_format = "{:<10}\t{:<10}\t{:<10}\t{:<10}\t{:<50.50}\t{:<20.20}\t{:<50.50}\t{:<4}"
+line_format = "{:<10}\t{:<20}\t{:<20}\t{:<20}\t{:<20}\t{:<50.50}\t{:<20.20}\t{:<50.50}\t{:<20}\t{:<20}\t{:<4}"
 header = line_format.format(
     "author",
-    "wait (min)",
-    "song len.",
+    "waited",
+    "author playtime",
+    "songs chosen",
     "songs left",
     "song name",
     "artist",
     "album",
+    "song len.",
+    "total playtime",
     "END",
 )
 print(header)
@@ -291,7 +302,7 @@ with open(SONG_LIST_FILE, "a") as f:
 
 end_index = 0
 for i, song_info in enumerate(person_song_map):
-    if song_info[7]:
+    if song_info[-1]:
         end_index = i
         break
 
