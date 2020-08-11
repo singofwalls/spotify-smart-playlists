@@ -1,5 +1,6 @@
 import random
 from collections import OrderedDict
+from statistics import mode
 
 import playlists as pl
 from utility import find_match
@@ -10,12 +11,22 @@ FAMILY_PLAYLISTS = (
     "6LCfJrtLW6zyKh6QOd5eyw",
     "0h2AE2G95T1D4s2l2IeoJX",
     "0l1OHmq3g40tBHPOL6b34J",
+    # "4FMikEyWN9TQuMFeXuk9rb"
     "1WN0DhY37vI954VYCuopVl",
     "5cTkATCHoowXXcAnBa0FyZ",
 )
 BLACK_LIST_PLAYLIST = "4eRsAraBhmj3kXU0CY5byO"
 ORDERED_BIAS = 3
-FAMILY_PLAYLISTS_NAMES = ("Erin", "Randy", "Brady", "Graham", "Reece", "FAT", "651")
+FAMILY_PLAYLISTS_NAMES = (
+    "Erin",
+    "Randy",
+    "Brady",
+    "Graham",
+    "Reece",
+    # "FAT 651",)
+    "FAT",
+    "651",
+)
 MAIN_PLAYLISTS = 5  # First # playlists are preferred
 PLAYLISTS_ORDERED = (False, False, False, False, True, False, False)
 SONG_LIST_FILE = "song_list.txt"
@@ -23,6 +34,8 @@ SONG_LIST_FILE = "song_list.txt"
 MAX_RUN = 3  # Maximum number of songs one person can have in a row
 MAX_WAIT = 20  # Number of minutes someone can wait before being forced
 SCALE = 2  # Take weights to this power
+SUPPRESS_UNIMPORTANT = True  # Set weight of unimportant playlists to max of 1.5 * max weight of important playlists
+MAX_SCALE_UNIMPORTANT = 1  # Multiply max important weight by this scale to get max weight possible for unimportant
 
 UPDATE = True
 FUZZY_DUPE_CHECKING = True
@@ -81,43 +94,60 @@ person_song_map = []
 last_play = {playlist: 0 for playlist in FAMILY_PLAYLISTS}
 main_end = False
 while playlists:
+    # TODO: Clean option selection by setting weights to 0 instead of removing
     playlist_options = []
-    for playlist in playlists[:MAIN_PLAYLISTS]:
-        wait = last_play[playlist.id]
+    for playlist_id in FAMILY_PLAYLISTS[:MAIN_PLAYLISTS]:
+        if playlist_id not in cum_wait:
+            continue
+        wait = last_play[playlist_id]
         if wait > MAX_WAIT:
+            playlist = [
+                playlist for playlist in playlists if playlist.id == playlist_id
+            ][0]
             playlist_options.append(playlist)
 
     if playlist_options:
-        option_names = [(FAMILY_PLAYLISTS_NAMES[FAMILY_PLAYLISTS.index(p.id)], round(last_play[p.id], 2)) for p in playlist_options]
+        option_names = [
+            (
+                FAMILY_PLAYLISTS_NAMES[FAMILY_PLAYLISTS.index(p.id)],
+                round(last_play[p.id], 2),
+            )
+            for p in playlist_options
+        ]
         print(f"Playlist choice limited to wait times > {MAX_WAIT}: ", option_names)
     else:
-        playlist_options = playlists
+        playlist_options = playlists[:]
 
-    while True:
-        playlist_chosen = random.choices(
-            playlist_options, weights=tuple(weight ** SCALE for weight in [cum_wait[p.id] for p in playlist_options])
-        )[0]
-        # Stop long runs
-        if (
-            len(playlists) > 1
-            and last_playlist == playlist_chosen.id
-            and run >= MAX_RUN
-        ):
-            pass
-        else:
-            break
-    if playlist_chosen.id != last_playlist:
-        run = 1
-        last_playlist = playlist_chosen.id
-    else:
-        run += 1
+    if run >= MAX_RUN:
+        for playlist in playlist_options:
+            if last_playlist == playlist.id and len(playlist_options) > 1:
+                playlist_options.remove(playlist)
+
+    option_weights = list(
+        weight ** SCALE + 1 for weight in [cum_wait[p.id] for p in playlist_options]
+    )
+
+    if SUPPRESS_UNIMPORTANT:
+        first_unimportant = None
+        for weight_num, option in enumerate(playlist_options):
+            if FAMILY_PLAYLISTS.index(option.id) >= MAIN_PLAYLISTS:
+                # Suppress weight of unimportant playlists
+                if first_unimportant is None:
+                    first_unimportant = weight_num
+                option_weights[weight_num] = min(
+                    option_weights[weight_num],
+                    max(option_weights[:first_unimportant]) * MAX_SCALE_UNIMPORTANT,
+                )
+
+    playlist_chosen = random.choices(playlist_options, weights=option_weights)[0]
+
     playlist_author = FAMILY_PLAYLISTS_NAMES[FAMILY_PLAYLISTS.index(playlist_chosen.id)]
 
     chosen_playlist_static_index = FAMILY_PLAYLISTS.index(playlist_chosen.id)
     weights = None
     if PLAYLISTS_ORDERED[chosen_playlist_static_index]:
         weights = [
-            weight ** ORDERED_BIAS for weight in range(len(playlist_chosen), 0, -1)
+            weight ** ORDERED_BIAS + 1 for weight in range(len(playlist_chosen), 0, -1)
         ]
 
     song = random.choices(playlist_chosen.tracks, weights=weights)[0]
@@ -138,7 +168,9 @@ while playlists:
         for playlist_id_wait in cum_wait:
             if playlist_id_wait == playlist_id:
                 wait = cum_wait[playlist_id_wait]
-                cum_before.append(f"{get_symbol(playlist_id_wait, wait)} {format_p(wait)}")
+                cum_before.append(
+                    f"{get_symbol(playlist_id_wait, wait)} {format_p(wait)}"
+                )
                 break
         else:
             cum_before.append(" " * (WAIT_LEN - 2))
@@ -182,6 +214,12 @@ while playlists:
             )
             continue
     songs.append(song)
+
+    if playlist_chosen.id != last_playlist:
+        run = 1
+        last_playlist = playlist_chosen.id
+    else:
+        run += 1
 
     duration = song.duration_ms / 1000 / 60
     person_song_map.append(
@@ -232,7 +270,14 @@ for dupe in dupes:
 print("\nSONG_LIST")
 line_format = "{:<10}\t{:<10}\t{:<10}\t{:<10}\t{:<50.50}\t{:<20.20}\t{:<50.50}\t{:<4}"
 header = line_format.format(
-    "author", "wait (min)", "song len.", "songs left", "song name", "artist", "album", "END"
+    "author",
+    "wait (min)",
+    "song len.",
+    "songs left",
+    "song name",
+    "artist",
+    "album",
+    "END",
 )
 print(header)
 with open(SONG_LIST_FILE, "w") as f:
@@ -250,11 +295,20 @@ for i, song_info in enumerate(person_song_map):
         end_index = i
         break
 
-wait_times = [time for time in sorted(person_song_map[:end_index+1], key=lambda s: float(s[1]), reverse=True) if FAMILY_PLAYLISTS_NAMES.index(time[0]) < MAIN_PLAYLISTS]
+wait_times = [
+    time
+    for time in sorted(
+        person_song_map[: end_index + 1], key=lambda s: float(s[1]), reverse=True
+    )
+    if FAMILY_PLAYLISTS_NAMES.index(time[0]) < MAIN_PLAYLISTS
+]
+
+wait_times_alone = [float(info[1]) for info in wait_times]
 print("\n5 greatest wait times")
 print(wait_times[:5])
-print("\n Average wait time")
-print(sum([float(info[1]) for info in wait_times])/len(wait_times))
+print("\n Average wait time:", sum(wait_times_alone) / len(wait_times))
+print("\n Most common wait time:", mode([round(time) for time in wait_times_alone]))
+
 
 if UPDATE:
     playlist_roadtrip.publish(public=True)
