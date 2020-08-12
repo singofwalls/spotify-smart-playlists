@@ -321,5 +321,8 @@ print("\n Average wait time:", sum(wait_times_alone) / len(wait_times) * 1440)
 print("\n Most common wait time:", mode([round(time * 1440) for time in wait_times_alone]))
 
 
+while not input("UPDATE REMOTE? ('YES')") == "YES":
+    pass
+
 if UPDATE:
     playlist_roadtrip.publish(public=True)
