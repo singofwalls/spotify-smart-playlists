@@ -317,8 +317,8 @@ wait_times = [
 wait_times_alone = [float(info[1]) for info in wait_times]
 print("\n5 greatest wait times")
 print(wait_times[:5])
-print("\n Average wait time:", sum(wait_times_alone) / len(wait_times))
-print("\n Most common wait time:", mode([round(time) for time in wait_times_alone]))
+print("\n Average wait time:", sum(wait_times_alone) / len(wait_times) * 1440)
+print("\n Most common wait time:", mode([round(time * 1440) for time in wait_times_alone]))
 
 
 if UPDATE:
