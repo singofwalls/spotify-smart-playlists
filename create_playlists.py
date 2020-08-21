@@ -21,6 +21,8 @@ from playlists import (
 # warnings.simplefilter("ignore")
 from utility import find_match, Track
 
+GRAHAM_PLAYLISTS = ("12disdWwNkqwvpbzjDRLia", "6xUAxUPG83IhQgrHL9t7Zp", "2V5F1ru0WYjstMDttoDjoi")
+
 print = tqdm.write
 
 creds = get_credentials()
@@ -67,6 +69,22 @@ def create_smart_playlists():
     p_save_songs_all = Playlist(spotify, "Liked Songs - All")
     p_save_songs_all += p_saved_instrumentals + p_saved_bands
     p_save_songs_all.publish()
+    spotify = get_spotify(creds["spotify"])  # To make sure we don't expire
+
+
+def create_graham_playlists():
+    """Create the current rotation and liked bands with Graham's tracks included."""
+    p_rotation_graham = Playlist(spotify, "Current Rotation with Graham")
+    p_bands_graham = Playlist(spotify, "Liked Songs - Bands with Graham")
+    p_rotation_graham += p_current_rotation
+    p_bands_graham += Playlist(spotify, "Liked Songs - Bands", populate=True)
+
+    for playlist_id in GRAHAM_PLAYLISTS:
+        playlist = Playlist(spotify, None, id_=playlist_id, populate=True)
+        p_rotation_graham += playlist
+        p_bands_graham += playlist
+    p_rotation_graham.publish()
+    p_bands_graham.publish()
 
 
 def get_lastfm(l_creds):
@@ -149,7 +167,7 @@ def update_lastfm_playlist():
             missing.append(target)
 
     if missing:
-        print("\n**Could not find matches for", missing)
+        print("\n**Could not find matches for " + ", ".join(repr(t) for t in missing))
 
     p_lastfm_top.tracks.clear()
     p_lastfm_top += tracks
@@ -188,7 +206,7 @@ def update_all_monthly_playlist():
     return p_all_monthly
 
 
-def create_current_rotation(update_lastfm=False, update_monthly=True):
+def create_current_rotation(update_lastfm=False, update_monthly=False):
     """Create the current rotation playlist."""
     global p_current_rotation
     if update_lastfm:
@@ -210,6 +228,8 @@ search_lists = {
     "saved_songs": p_saved_songs,
 }
 
+# update_all_monthly_playlist()
+# update_lastfm_playlist()
+# create_current_rotation()
 # create_smart_playlists()
-update_all_monthly_playlist()
-create_current_rotation(False, False)
+create_graham_playlists()
