@@ -185,7 +185,7 @@ def update_all_monthly_playlist():
     months = tuple(month.lower() for month in calendar.month_name)[1:]
     months_str = "|".join(months)
     month_match = re.compile(f"({months_str})(-({months_str}))" + "? [0-9]{4}")
-    top_match = re.compile(r"Your Top Songs 20[0-9]{2}")
+    top_match = re.compile(r"your top songs 20[0-9]{2}")
     monthly_playlist_ids = []
     for playlist_id in get_playlists(spotify):
         name = playlist_id["name"].lower()
