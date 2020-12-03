@@ -223,7 +223,7 @@ def create_current_rotation(update_lastfm=False, update_monthly=False):
 
     p_fat = Playlist(spotify, None, id_="1WN0DhY37vI954VYCuopVl", populate=True)
     p_reece_jacob = Playlist(spotify, None, id_="2L9XOIqXKBA6hZETQouQay", populate=False)
-    p_jacob = Playlist(spotify, None, id_="0MFsbM9QIUY20SYHkPjK2A", populate=True)
+    p_jacob = Playlist(spotify, None, id_="4KNOgPEWJhefIXpUGOOSMU", populate=True)
 
     p_current_rotation.tracks.clear()
     p_current_rotation += p_all_monthly
