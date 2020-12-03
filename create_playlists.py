@@ -196,7 +196,7 @@ def update_all_monthly_playlist():
                 first_month = name.split("-")[0]
 
         if top_match.match(name):  # "'Your Top Songs' Year" playlist
-            first_month = "December"  # If the year is included at all, we'll probably want all the top songs of the year
+            first_month = "January"
             year = name.split(" ")[-1]
 
         if first_month:
