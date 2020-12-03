@@ -386,6 +386,8 @@ def search(spotify: spotipy.Spotify, name, album=None, artist=None, market=USER_
         target_track = Track(name=name, album=album_search, artist=artist)
         results = spotify.search(q=create_query(target_track), market=market)
         matches = results_to_tracks(results["tracks"]["items"], [])
+        for track in matches:
+            track.available_markets = None  # None indicates correct market due to search in market
         best_result = find_match(matches, target_track)
         if best_result:
             return best_result
@@ -413,7 +415,9 @@ def intersect_lists(own, other):
 def get_playlist_tracks(spotify: spotipy.Spotify, playlist_id: str) -> List[Track]:
     """Load all songs from the given playlist."""
     results = get_all(spotify, spotify.playlist_tracks(playlist_id, market=USER_MARKET))
-
+    for track in results:  # None indicates that search was made with user_market
+        if not track["track"]["available_markets"]:
+            track["track"]["available_markets"] = None
     return results_to_tracks(results)
 
 

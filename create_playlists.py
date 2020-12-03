@@ -184,15 +184,22 @@ def update_all_monthly_playlist():
 
     months = tuple(month.lower() for month in calendar.month_name)[1:]
     months_str = "|".join(months)
-    match = re.compile(f"({months_str})(-({months_str}))" + "? [0-9]{4}")
+    month_match = re.compile(f"({months_str})(-({months_str}))" + "? [0-9]{4}")
+    top_match = re.compile(r"Your Top Songs 20[0-9]{2}")
     monthly_playlist_ids = []
     for playlist_id in get_playlists(spotify):
         name = playlist_id["name"].lower()
-        if match.match(name):
+        first_month = None
+        if month_match.match(name):  # "Month Year" or "Month-Month Year" format
             first_month, year = name.split(" ")
             if "-" in name:
                 first_month = name.split("-")[0]
 
+        if top_match.match(name):  # "'Your Top Songs' Year" playlist
+            first_month = "December"  # If the year is included at all, we'll probably want all the top songs of the year
+            year = name.split(" ")[-1]
+
+        if first_month:
             date = datetime.strptime(f"{first_month.title()} {year}", "%B %Y")
             if cutoff_date is None or date >= cutoff_date:
                 monthly_playlist_ids.append((date, playlist_id["id"]))
@@ -214,13 +221,22 @@ def create_current_rotation(update_lastfm=False, update_monthly=False):
     if update_monthly:
         update_all_monthly_playlist()
 
+    p_fat = Playlist(spotify, None, id_="1WN0DhY37vI954VYCuopVl", populate=True)
+    p_reece_jacob = Playlist(spotify, None, id_="2L9XOIqXKBA6hZETQouQay", populate=False)
+    p_jacob = Playlist(spotify, None, id_="0MFsbM9QIUY20SYHkPjK2A", populate=True)
+
     p_current_rotation.tracks.clear()
     p_current_rotation += p_all_monthly
     p_current_rotation += p_lastfm_top
+    p_current_rotation += p_fat
 
     p_current_rotation -= p_instrumental
 
     p_current_rotation.publish()
+
+    p_reece_jacob += p_current_rotation
+    p_reece_jacob += p_jacob
+    p_reece_jacob.publish()
 
 
 search_lists = {
@@ -228,8 +244,8 @@ search_lists = {
     "saved_songs": p_saved_songs,
 }
 
-# update_all_monthly_playlist()
+update_all_monthly_playlist()
 # update_lastfm_playlist()
-# create_current_rotation()
-# create_smart_playlists()
+create_current_rotation()
+create_smart_playlists()
 create_graham_playlists()
