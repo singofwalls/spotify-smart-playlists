@@ -416,7 +416,7 @@ def get_playlist_tracks(spotify: spotipy.Spotify, playlist_id: str) -> List[Trac
     """Load all songs from the given playlist."""
     results = get_all(spotify, spotify.playlist_tracks(playlist_id, market=USER_MARKET))
     for track in results:  # None indicates that search was made with user_market
-        if not track["track"]["available_markets"]:
+        if "available_markets" not in track["track"] or not track["track"]["available_markets"]:
             track["track"]["available_markets"] = None
     return results_to_tracks(results)
 
